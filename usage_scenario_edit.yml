@@ -1,0 +1,25 @@
+---
+name: XWiki 17.10.9 - Edit - PostgreSQL - Firefox
+author: Manuel Leduc <manuel.leduc@gmail.com>
+description: A logged-in user creates a page, writes content, saves, views and deletes it.
+
+compose-file: !include compose.yml
+
+services:
+  gcb-playwright:
+    image: greencoding/gcb_playwright:v21
+    depends_on:
+      xwiki:
+        condition: service_healthy
+    environment:
+      HOST_URL: http://xwiki:8080
+    command: ["tail", "-f", "/dev/null"]
+
+flow:
+  - name: Create and edit a page
+    container: gcb-playwright
+    commands:
+      - type: console
+        command: python3 /tmp/repo/playwright-files/edit.py firefox
+        note: Page creation and editing
+        read-notes-stdout: true

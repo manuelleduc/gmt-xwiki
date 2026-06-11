@@ -1,0 +1,25 @@
+---
+name: XWiki 17.10.9 - Browse - PostgreSQL - Firefox
+author: Manuel Leduc <manuel.leduc@gmail.com>
+description: An anonymous visitor opens the home page and navigates standard wiki pages.
+
+compose-file: !include compose.yml
+
+services:
+  gcb-playwright:
+    image: greencoding/gcb_playwright:v21
+    depends_on:
+      xwiki:
+        condition: service_healthy
+    environment:
+      HOST_URL: http://xwiki:8080
+    command: ["tail", "-f", "/dev/null"]
+
+flow:
+  - name: Browse wiki pages
+    container: gcb-playwright
+    commands:
+      - type: console
+        command: python3 /tmp/repo/playwright-files/browse.py firefox
+        note: Anonymous browsing
+        read-notes-stdout: true

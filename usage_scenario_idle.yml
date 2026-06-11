@@ -1,0 +1,24 @@
+---
+name: XWiki 17.10.9 - Idle - PostgreSQL
+author: Manuel Leduc <manuel.leduc@gmail.com>
+description: Boots a pre-initialized XWiki and measures 60 seconds of idle operation (baseline).
+
+compose-file: !include compose.yml
+
+services:
+  gcb-playwright:
+    image: greencoding/gcb_playwright:v21
+    depends_on:
+      xwiki:
+        condition: service_healthy
+    environment:
+      HOST_URL: http://xwiki:8080
+    command: ["tail", "-f", "/dev/null"]
+
+flow:
+  - name: Idle
+    container: gcb-playwright
+    commands:
+      - type: console
+        command: sleep 60
+        note: XWiki idling, no interaction

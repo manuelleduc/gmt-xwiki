@@ -1,0 +1,29 @@
+services:
+  db:
+    image: postgres:17.5
+    environment:
+      POSTGRES_USER: xwiki
+      POSTGRES_PASSWORD: xwiki
+      POSTGRES_DB: xwiki
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale-provider=builtin --locale=C.UTF-8"
+    healthcheck:
+      test: pg_isready -U xwiki -d xwiki
+      interval: 1h
+      start_period: 60s
+      start_interval: 1s
+
+  xwiki:
+    image: xwiki:17.10.9-postgres-tomcat
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_USER: xwiki
+      DB_PASSWORD: xwiki
+      DB_DATABASE: xwiki
+      DB_HOST: db
+    healthcheck:
+      test: curl --fail --silent http://localhost:8080/bin/view/Main/ -o /dev/null
+      interval: 1h
+      start_period: 300s
+      start_interval: 2s
