@@ -126,6 +126,19 @@ def run(playwright, browser_name):
         raise RuntimeError('Could not open the wiki homepage')
     page.wait_for_load_state()
 
+    # XWiki initializes lazily on the first request; until done it serves a
+    # progress page that contains neither the wizard nor any flavor content.
+    init_deadline = time.time() + 600
+    while '/bin/distribution/' not in page.url \
+            and 'distributionWizard' not in page.content() \
+            and not page.locator('#contentcontainer').count():
+        if time.time() > init_deadline:
+            raise RuntimeError('Wiki never finished initializing (no wizard, no content)')
+        log_note('Wiki still initializing, retrying in 10s')
+        time.sleep(10)
+        page.goto(f'{DOMAIN}/bin/view/Main/')
+        page.wait_for_load_state()
+
     if not wizard_done(page):
         try_login(page)
         page.goto(f'{DOMAIN}/bin/view/Main/')
