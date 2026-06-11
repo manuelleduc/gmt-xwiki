@@ -108,6 +108,7 @@ def handle_flavor_picker(page) -> bool:
     log_note('Starting flavor installation')
     js_click(page, 'input[name=installFlavor]')
     page.wait_for_load_state()
+    time.sleep(5)  # let the form-submit navigation land before the next loop pass
     return True
 
 
@@ -152,9 +153,9 @@ def run(playwright, browser_name):
 
         if handle_admin_user_step(page):
             continue
-        if handle_flavor_picker(page):
-            continue
         # Confirm the install plan / retry a failed plan computation.
+        # Checked before the picker: the confirm sub-state can briefly coexist
+        # with a stale picker DOM while the page navigates.
         if js_click(page, 'button[name=extensionAction][value=install]'):
             install_clicks += 1
             if install_clicks > 10:
@@ -168,6 +169,8 @@ def run(playwright, browser_name):
             log_note('Answering extension job question with default (continue)')
             page.wait_for_load_state()
             time.sleep(5)
+            continue
+        if handle_flavor_picker(page):
             continue
         # Step finished: the wizard enables its Continue button.
         if js_click(page, 'button[name=action][value=COMPLETE_STEP]'):
