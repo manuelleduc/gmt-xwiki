@@ -37,5 +37,6 @@ for scenario in "${SCENARIOS[@]}"; do
         --measurement-wait-time-dependencies 600 \
         --skip-download-dependencies \
         --dev-cache-build \
+        --skip-optimizations \
         --print-logs
 done
