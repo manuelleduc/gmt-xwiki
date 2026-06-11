@@ -1,5 +1,5 @@
 ---
-name: XWiki 17.10.9 - Search - PostgreSQL - Firefox
+name: XWiki __GMT_VAR_VERSION__ - Search - PostgreSQL - Firefox
 author: Manuel Leduc <manuel.leduc@gmail.com>
 description: A visitor uses the quick search bar and opens a result (exercises Solr).
 

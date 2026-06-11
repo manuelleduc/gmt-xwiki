@@ -1,6 +1,8 @@
 # XWiki with the Standard flavor pre-installed (permanent directory baked in).
-# The seed tarball is produced once per version by provision/export_seed.sh.
-FROM xwiki:17.10.9-postgres-tomcat
+# The seed tarball is produced once per version by provision/provision_version.sh.
+ARG XWIKI_VERSION
+FROM xwiki:${XWIKI_VERSION}-postgres-tomcat
+ARG XWIKI_VERSION
 
 # Contains the initialized permanent directory: extensions, solr index, data.
-ADD seed/xwiki-data.tar.gz /usr/local/
+ADD seed/${XWIKI_VERSION}/xwiki-data.tar.gz /usr/local/

@@ -1,5 +1,7 @@
 # PostgreSQL with the provisioned XWiki database loaded at first start.
-# The dump is produced once per version by provision/export_seed.sh.
+# The dump is produced once per version by provision/provision_version.sh.
+ARG XWIKI_VERSION
 FROM postgres:17.5
+ARG XWIKI_VERSION
 
-COPY seed/db-dump.sql.gz /docker-entrypoint-initdb.d/
+COPY seed/${XWIKI_VERSION}/db-dump.sql.gz /docker-entrypoint-initdb.d/

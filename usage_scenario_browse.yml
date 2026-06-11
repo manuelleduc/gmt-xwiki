@@ -1,5 +1,5 @@
 ---
-name: XWiki 17.10.9 - Browse - PostgreSQL - Firefox
+name: XWiki __GMT_VAR_VERSION__ - Browse - PostgreSQL - Firefox
 author: Manuel Leduc <manuel.leduc@gmail.com>
 description: An anonymous visitor opens the home page and navigates standard wiki pages.
 

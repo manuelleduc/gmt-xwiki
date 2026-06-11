@@ -1,11 +1,8 @@
-# Blank (unseeded) XWiki stack, used only to generate the seed/ artifacts.
+# Blank (unseeded) XWiki stack, used only to generate the seed/<version>/ artifacts.
 # The measured stack (../compose.yml) builds images with this state baked in.
+# XWIKI_VERSION is interpolated by docker compose from the environment.
 #
-#   docker compose -p gmtxwiki-provision-stack -f provision/compose-blank.yml up -d
-#   docker run --rm --network gmtxwiki-provision-stack_default \
-#     -v "$PWD":/tmp/repo -e HOST_URL=http://xwiki:8080 -w /tmp/repo/provision \
-#     greencoding/gcb_playwright:v21 python3 provision.py firefox
-#   ./provision/export_seed.sh gmtxwiki-provision-stack
+# Use the wrapper: ./provision/provision_version.sh <version>
 services:
   db:
     image: postgres:17.5
@@ -20,7 +17,7 @@ services:
       start_period: 60s
 
   xwiki:
-    image: xwiki:17.10.9-postgres-tomcat
+    image: "xwiki:${XWIKI_VERSION:-17.10.9}-postgres-tomcat"
     depends_on:
       db:
         condition: service_healthy

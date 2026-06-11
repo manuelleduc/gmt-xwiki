@@ -51,7 +51,13 @@ def run(playwright: Playwright, browser_name: str) -> None:
         user_sleep()
 
         log_note("Save and view")
-        page.locator('button.realtime-action-done').click()
+        # 17.x uses the realtime editor's Done button; older versions (<=16.10)
+        # show the classic Save & View input instead
+        done_button = page.locator('button.realtime-action-done')
+        if done_button.count() and done_button.first.is_visible():
+            done_button.first.click()
+        else:
+            page.locator('input[name=action_save]').click()
         page.wait_for_load_state()
         # the in-place editor leaves a second #document-title in the DOM
         expect(page.locator('#document-title').first).to_contain_text(page_name)

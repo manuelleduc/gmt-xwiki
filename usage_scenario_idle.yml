@@ -1,5 +1,5 @@
 ---
-name: XWiki 17.10.9 - Idle - PostgreSQL
+name: XWiki __GMT_VAR_VERSION__ - Idle - PostgreSQL
 author: Manuel Leduc <manuel.leduc@gmail.com>
 description: Boots a pre-initialized XWiki and measures 60 seconds of idle operation (baseline).
 

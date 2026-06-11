@@ -1,11 +1,16 @@
 # XWiki stack with the Standard flavor pre-installed (seeded images).
-# Generate seed/ first: see provision/compose-blank.yml and CLAUDE.md.
+# This file is consumed by GMT, which substitutes __GMT_VAR_VERSION__
+# (passed by run_measurements.sh via --variable). The images are pre-built
+# by run_measurements.sh with `docker build --build-arg XWIKI_VERSION=...`.
+# Generate seed/<version>/ first: see provision/provision_version.sh.
 services:
   db:
     build:
       context: .
       dockerfile: docker/Dockerfile-db
-    image: gmt-xwiki-db-seeded:17.10.9
+      args:
+        XWIKI_VERSION: __GMT_VAR_VERSION__
+    image: gmt-xwiki-db-seeded:__GMT_VAR_VERSION__
     environment:
       POSTGRES_USER: xwiki
       POSTGRES_PASSWORD: xwiki
@@ -23,7 +28,9 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile-xwiki
-    image: gmt-xwiki-seeded:17.10.9
+      args:
+        XWIKI_VERSION: __GMT_VAR_VERSION__
+    image: gmt-xwiki-seeded:__GMT_VAR_VERSION__
     depends_on:
       db:
         condition: service_healthy

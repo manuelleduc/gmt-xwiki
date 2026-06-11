@@ -1,5 +1,5 @@
 ---
-name: XWiki 17.10.9 - Edit - PostgreSQL - Firefox
+name: XWiki __GMT_VAR_VERSION__ - Edit - PostgreSQL - Firefox
 author: Manuel Leduc <manuel.leduc@gmail.com>
 description: A logged-in user creates a page, writes content, saves, views and deletes it.
 
