@@ -1,19 +1,29 @@
+# XWiki stack with the Standard flavor pre-installed (seeded images).
+# Generate seed/ first: see provision/compose-blank.yml and CLAUDE.md.
 services:
   db:
-    image: postgres:17.5
+    build:
+      context: .
+      dockerfile: docker/Dockerfile-db
+    image: gmt-xwiki-db-seeded:17.10.9
     environment:
       POSTGRES_USER: xwiki
       POSTGRES_PASSWORD: xwiki
       POSTGRES_DB: xwiki
       POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale-provider=builtin --locale=C.UTF-8"
     healthcheck:
-      test: pg_isready -U xwiki -d xwiki
+      # -h 127.0.0.1 forces TCP: the unix socket is already up while the
+      # init scripts (seed dump load) are still running
+      test: pg_isready -U xwiki -d xwiki -h 127.0.0.1
       interval: 1h
-      start_period: 60s
-      start_interval: 1s
+      start_period: 120s
+      start_interval: 2s
 
   xwiki:
-    image: xwiki:17.10.9-postgres-tomcat
+    build:
+      context: .
+      dockerfile: docker/Dockerfile-xwiki
+    image: gmt-xwiki-seeded:17.10.9
     depends_on:
       db:
         condition: service_healthy

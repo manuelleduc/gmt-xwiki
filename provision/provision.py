@@ -35,9 +35,12 @@ def js_click(page, selector: str) -> bool:
     hidden buttons in the DOM (e.g. COMPLETE_STEP before the flavor is
     installed) and clicking those would corrupt the wizard state.
     """
+    # offsetParent is null for fixed-position ancestors (the wizard footer!),
+    # so visibility is checked through the bounding rect instead.
     return page.evaluate(
-        "(sel) => { const b = document.querySelector(sel);"
-        " if (b && !b.disabled && b.offsetParent !== null) { b.click(); return true; } return false; }",
+        "(sel) => { const b = document.querySelector(sel); if (!b || b.disabled) return false;"
+        " const r = b.getBoundingClientRect();"
+        " if (r.width > 0 && r.height > 0) { b.click(); return true; } return false; }",
         selector)
 
 
@@ -144,6 +147,15 @@ def run(playwright, browser_name):
         # Step finished: the wizard enables its Continue button.
         if js_click(page, 'button[name=action][value=COMPLETE_STEP]'):
             log_note('Step complete, continuing to next wizard step')
+            page.wait_for_load_state()
+            time.sleep(5)
+            continue
+        # The flavor shows as installed but the footer button escaped the
+        # visibility heuristics: completing the step is unambiguously safe now.
+        if page.locator('.extension-item-installed').count() \
+                and page.evaluate("() => { const b = document.querySelector('button[name=action][value=COMPLETE_STEP]');"
+                                  " if (b && !b.disabled) { b.click(); return true; } return false; }"):
+            log_note('Flavor installed, forcing wizard step completion')
             page.wait_for_load_state()
             time.sleep(5)
             continue

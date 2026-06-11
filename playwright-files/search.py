@@ -7,7 +7,7 @@ import sys
 
 from playwright.sync_api import Playwright, sync_playwright, expect
 
-from helpers.helper_functions import log_note, launch_browser, user_sleep, DOMAIN
+from helpers.helper_functions import log_note, launch_browser, user_sleep, dismiss_tour, DOMAIN
 
 SEARCH_TERM = "sandbox"
 
@@ -19,19 +19,22 @@ def run(playwright: Playwright, browser_name: str) -> None:
     try:
         log_note("Open home page")
         page.goto(f"{DOMAIN}/bin/view/Main/")
+        dismiss_tour(page)
         user_sleep()
 
         log_note(f"Search for '{SEARCH_TERM}' from the quick search bar")
+        page.locator('#globalsearch button[title="Search"]').click()
         search_input = page.locator('#headerglobalsearchinput')
-        search_input.click()
+        expect(search_input).to_be_enabled()
         search_input.type(SEARCH_TERM, delay=50)
         search_input.press('Enter')
         page.wait_for_load_state()
         user_sleep()
 
         log_note("Wait for search results")
-        results = page.locator('.search-results .search-result, #search-results .result')
+        results = page.locator('.search-result')
         expect(results.first).to_be_visible(timeout=30_000)
+        log_note(f"Found {results.count()} search results on the page")
         user_sleep()
 
         log_note("Open the first search result")

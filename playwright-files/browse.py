@@ -7,7 +7,7 @@ import sys
 
 from playwright.sync_api import Playwright, sync_playwright, expect
 
-from helpers.helper_functions import log_note, launch_browser, user_sleep, DOMAIN
+from helpers.helper_functions import log_note, launch_browser, user_sleep, dismiss_tour, DOMAIN
 
 
 def run(playwright: Playwright, browser_name: str) -> None:
@@ -18,6 +18,7 @@ def run(playwright: Playwright, browser_name: str) -> None:
         log_note("Open home page")
         page.goto(f"{DOMAIN}/bin/view/Main/")
         expect(page.locator('body#body')).to_be_visible()
+        dismiss_tour(page)
         user_sleep()
 
         log_note("Open the How-To page")

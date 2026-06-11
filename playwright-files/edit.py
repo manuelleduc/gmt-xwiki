@@ -1,7 +1,7 @@
 """Scenario: logged-in user creates a page, writes content, saves and deletes it.
 
-Covers the core wiki write path: login, page creation from the + button,
-typing content in the wiki editor, save & view, delete.
+Covers the core wiki write path: login, page creation from the Create button,
+typing content in the (default, realtime) WYSIWYG editor, save, delete.
 """
 import random
 import string
@@ -9,15 +9,14 @@ import sys
 
 from playwright.sync_api import Playwright, sync_playwright, expect
 
-from helpers.helper_functions import log_note, launch_browser, login_xwiki, user_sleep, DOMAIN
+from helpers.helper_functions import log_note, launch_browser, login_xwiki, user_sleep, dismiss_tour, DOMAIN
 
 PAGE_CONTENT = (
     "This page was created by an automated Green Metrics Tool scenario. "
-    "It contains a small amount of representative wiki content.\n\n"
-    "= A heading =\n\n"
-    "Some **bold** text, some //italic// text and a [[link>>Main.WebHome]].\n\n"
-    "* a first bullet point\n"
-    "* a second bullet point\n"
+    "It contains a small amount of representative wiki content.\n"
+    "Some additional thoughts are written here, the way a user would describe "
+    "meeting notes or a small piece of documentation.\n"
+    "A short closing line ends the page."
 )
 
 
@@ -34,34 +33,35 @@ def run(playwright: Playwright, browser_name: str) -> None:
 
         log_note("Open page creation form")
         page.goto(f"{DOMAIN}/bin/view/Main/")
-        page.locator('#tmCreate').click()
+        dismiss_tour(page)
+        page.locator('a.btn[title="Create"]').click()
         page.wait_for_load_state()
         user_sleep()
 
         log_note("Name the new page")
-        title_input = page.locator('#title')
-        title_input.fill(page_name)
-        page.locator('form#create input[type=submit], form#create button[type=submit]').first.click()
+        page.locator('#targetTitle').fill(page_name)
+        page.locator('form#create [type=submit]').first.click()
         page.wait_for_load_state()
         user_sleep()
 
-        log_note("Type page content")
-        content_area = page.locator('#content')
-        content_area.click()
-        content_area.type(PAGE_CONTENT, delay=20)
+        log_note("Type page content in the WYSIWYG editor")
+        editor_body = page.frame_locator('iframe.cke_wysiwyg_frame').locator('body')
+        editor_body.click()
+        page.keyboard.type(PAGE_CONTENT, delay=20)
         user_sleep()
 
         log_note("Save and view")
-        page.locator('input[name=action_save]').click()
+        page.locator('button.realtime-action-done').click()
         page.wait_for_load_state()
-        expect(page.locator('#document-title, h1#document-title')).to_contain_text(page_name)
+        # the in-place editor leaves a second #document-title in the DOM
+        expect(page.locator('#document-title').first).to_contain_text(page_name)
         user_sleep()
 
         log_note("Delete the page")
-        page.locator('#tmMoreActions').click()
-        page.locator('#tmDelete').click()
+        page.locator('button[title="More Actions"]').click()
+        page.locator('#tmActionDelete').click()
         page.wait_for_load_state()
-        page.locator('button.confirm, input.confirm').first.click()
+        page.locator('button.confirm.btn-danger, button.btn-danger.confirm').first.click()
         page.wait_for_load_state()
         user_sleep()
 
