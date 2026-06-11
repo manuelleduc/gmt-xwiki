@@ -45,7 +45,10 @@ def js_click(page, selector: str) -> bool:
 
 
 def wizard_done(page) -> bool:
-    return '/bin/distribution/' not in page.url and 'distributionWizard' not in page.content()
+    # URL check only: while the wizard is active it redirects every view URL to
+    # /bin/distribution/. Avoid page.content() here — serializing the Report
+    # step's huge DOM (it lists every created page) can take minutes.
+    return '/bin/distribution/' not in page.url
 
 
 def try_login(page) -> None:
