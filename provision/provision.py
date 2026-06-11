@@ -89,19 +89,22 @@ def handle_flavor_picker(page) -> bool:
         return False
     log_note('Waiting for the flavor picker to load')
     flavor_radio = page.locator('.xwiki-flavor-picker li input[type=radio], .xwiki-flavor-picker-option input[type=radio]')
-    try:
-        flavor_radio.first.wait_for(state='attached', timeout=120_000)
-    except Exception as wait_error:
-        # The flavor search job result is persisted server-side: if it ran during
-        # a network failure it stays FINISHED with zero results and the wizard
-        # never retries. Only recreating the stack (down -v) resets it.
-        if page.locator('.xwiki-flavor-picker input[value=FINISHED]').count() \
-                and not page.locator('.xwiki-flavor-picker li').count():
-            raise RuntimeError(
-                'Flavor search finished with zero results (likely a transient network '
-                'failure during the search, its result is persisted). Recreate the stack '
-                'with "docker compose ... down -v" and re-run provisioning.') from wait_error
-        raise
+    for attempt in range(1, 6):
+        try:
+            flavor_radio.first.wait_for(state='attached', timeout=120_000)
+            break
+        except Exception:
+            # Empty/stuck picker (e.g. the search hit a transient network
+            # failure): waiting a bit and reloading makes the wizard redo it.
+            if attempt == 5:
+                raise
+            log_note(f'Flavor picker shows no flavors (attempt {attempt}/5), reloading in 30s')
+            time.sleep(30)
+            page.reload()
+            page.wait_for_load_state()
+            if not page.locator('input[name=installFlavor]').count():
+                # the wizard moved to another state; let the main loop re-dispatch
+                return False
     if not flavor_radio.first.is_checked():
         log_note('Selecting the recommended flavor')
         # the radio itself is hidden by the picker styling; click the option tile
