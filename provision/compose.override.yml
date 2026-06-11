@@ -1,0 +1,8 @@
+# Provisioning-only override: bypass Docker's embedded DNS, which proved flaky
+# under the many concurrent requests of the flavor installation.
+# (GMT-measured runs use seeded images and need no external network.)
+services:
+  xwiki:
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8

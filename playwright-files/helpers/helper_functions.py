@@ -34,6 +34,6 @@ def login_xwiki(page, username=USERNAME, password=PASSWORD, domain=DOMAIN):
     page.goto(f"{domain}/bin/login/XWiki/XWikiLogin")
     page.locator('#j_username').fill(username)
     page.locator('#j_password').fill(password)
-    page.locator('input[type=submit].button').click()
-    # After login XWiki redirects; the user menu avatar proves we are logged in
-    expect(page.locator('#xwikimainmenu')).to_be_visible()
+    page.locator('#loginForm input[type=submit]').click()
+    # After login XWiki redirects; the drawer avatar proves we are logged in
+    expect(page.locator('#tmUser, .navbar-avatar, #companylogo')).to_be_visible()

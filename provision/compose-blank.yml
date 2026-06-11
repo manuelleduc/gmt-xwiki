@@ -1,0 +1,40 @@
+# Blank (unseeded) XWiki stack, used only to generate the seed/ artifacts.
+# The measured stack (../compose.yml) builds images with this state baked in.
+#
+#   docker compose -p gmtxwiki-provision-stack -f provision/compose-blank.yml up -d
+#   docker run --rm --network gmtxwiki-provision-stack_default \
+#     -v "$PWD":/tmp/repo -e HOST_URL=http://xwiki:8080 -w /tmp/repo/provision \
+#     greencoding/gcb_playwright:v21 python3 provision.py firefox
+#   ./provision/export_seed.sh gmtxwiki-provision-stack
+services:
+  db:
+    image: postgres:17.5
+    environment:
+      POSTGRES_USER: xwiki
+      POSTGRES_PASSWORD: xwiki
+      POSTGRES_DB: xwiki
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale-provider=builtin --locale=C.UTF-8"
+    healthcheck:
+      test: pg_isready -U xwiki -d xwiki -h 127.0.0.1
+      interval: 5s
+      start_period: 60s
+
+  xwiki:
+    image: xwiki:17.10.9-postgres-tomcat
+    depends_on:
+      db:
+        condition: service_healthy
+    # Docker's embedded DNS proved flaky under the flavor install's many
+    # concurrent extension downloads; use upstream resolvers directly.
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    environment:
+      DB_USER: xwiki
+      DB_PASSWORD: xwiki
+      DB_DATABASE: xwiki
+      DB_HOST: db
+    healthcheck:
+      test: curl --fail --silent http://localhost:8080/bin/view/Main/ -o /dev/null || curl --silent -o /dev/null -w '%{http_code}' http://localhost:8080/bin/view/Main/ | grep -q 302
+      interval: 5s
+      start_period: 300s
