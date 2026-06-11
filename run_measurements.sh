@@ -64,8 +64,6 @@ for version in "${VERSION_LIST[@]}"; do
             --name "xwiki-${version} ${scenario}" \
             --variable "__GMT_VAR_VERSION__=${version}" \
             --measurement-wait-time-dependencies 600 \
-            --skip-download-dependencies \
-            --dev-cache-build \
             --print-logs
     done
 done
