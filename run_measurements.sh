@@ -16,6 +16,7 @@ set -euo pipefail
 
 GMT_DIR="${GMT_DIR:-$HOME/green-metrics-tool}"
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
+IMAGE_NS="ghcr.io/manuelleduc"   # must match the image names in compose.yml
 
 VERSIONS="17.10.9"
 while getopts "v:" opt; do
@@ -34,25 +35,32 @@ fi
 source "$GMT_DIR/venv/bin/activate"
 
 # Build the seeded images with the local docker daemon and pre-tag them with
-# GMT's temporary run names. GMT then skips its kaniko build (which re-fetches
-# base images from the registry on every run and is exposed to rate limits)
-# and skips registry pulls: the runs become fully network-free.
+# GMT's temporary run names. Together with --dev-cache-build (which stops GMT
+# from wiping *_gmt_run_tmp images at run start) GMT then finds them in its
+# build cache and skips registry pulls: the runs become fully network-free.
 gmt_tmp_name() { echo "$1" | sed -E 's/[^A-Za-z0-9_]/_/g' | tr '[:upper:]' '[:lower:]'; }
 docker tag greencoding/gcb_playwright:v21 "$(gmt_tmp_name greencoding/gcb_playwright:v21)_gmt_run_tmp"
 
 IFS=',' read -ra VERSION_LIST <<< "$VERSIONS"
 for version in "${VERSION_LIST[@]}"; do
-    if [ ! -f "$REPO_DIR/seed/$version/xwiki-data.tar.gz" ]; then
-        echo "ERROR: seed/$version/ missing. Run: ./provision/provision_version.sh $version" >&2
-        exit 1
+    xwiki_img="$IMAGE_NS/gmt-xwiki-seeded:$version"
+    db_img="$IMAGE_NS/gmt-xwiki-db-seeded:$version"
+    if [ -f "$REPO_DIR/seed/$version/xwiki-data.tar.gz" ]; then
+        echo "=== Building seeded images for XWiki $version ==="
+        docker build -f "$REPO_DIR/docker/Dockerfile-xwiki" --build-arg "XWIKI_VERSION=$version" \
+            -t "$xwiki_img" "$REPO_DIR"
+        docker build -f "$REPO_DIR/docker/Dockerfile-db" --build-arg "XWIKI_VERSION=$version" \
+            -t "$db_img" "$REPO_DIR"
+    elif ! docker image inspect "$xwiki_img" "$db_img" >/dev/null 2>&1; then
+        echo "=== No seed/$version/, pulling seeded images from $IMAGE_NS ==="
+        docker pull "$xwiki_img" && docker pull "$db_img" || {
+            echo "ERROR: seed/$version/ missing and images not pullable." >&2
+            echo "Run: ./provision/provision_version.sh $version" >&2
+            exit 1
+        }
     fi
-    echo "=== Building seeded images for XWiki $version ==="
-    docker build -f "$REPO_DIR/docker/Dockerfile-xwiki" --build-arg "XWIKI_VERSION=$version" \
-        -t "gmt-xwiki-seeded:$version" "$REPO_DIR"
-    docker build -f "$REPO_DIR/docker/Dockerfile-db" --build-arg "XWIKI_VERSION=$version" \
-        -t "gmt-xwiki-db-seeded:$version" "$REPO_DIR"
-    docker tag "gmt-xwiki-seeded:$version" "$(gmt_tmp_name "gmt-xwiki-seeded:$version")_gmt_run_tmp"
-    docker tag "gmt-xwiki-db-seeded:$version" "$(gmt_tmp_name "gmt-xwiki-db-seeded:$version")_gmt_run_tmp"
+    docker tag "$xwiki_img" "$(gmt_tmp_name "$xwiki_img")_gmt_run_tmp"
+    docker tag "$db_img" "$(gmt_tmp_name "$db_img")_gmt_run_tmp"
 done
 
 for version in "${VERSION_LIST[@]}"; do
@@ -64,6 +72,7 @@ for version in "${VERSION_LIST[@]}"; do
             --name "xwiki-${version} ${scenario}" \
             --variable "__GMT_VAR_VERSION__=${version}" \
             --measurement-wait-time-dependencies 600 \
+            --dev-cache-build \
             --print-logs
     done
 done

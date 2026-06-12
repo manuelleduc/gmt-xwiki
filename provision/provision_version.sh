@@ -4,11 +4,16 @@
 # 10-30 min, downloads extensions), dumps DB + permanent directory into
 # seed/<version>/, then tears the stack down.
 #
-# Usage: ./provision/provision_version.sh <version>     e.g. 16.10.17
+# Usage: ./provision/provision_version.sh <version> [--push]   e.g. 16.10.17
+#   --push   also push the seeded images to GHCR (requires `docker login ghcr.io`);
+#            needed once per version for hosted-cluster measurements, since the
+#            cluster pulls the images instead of building from gitignored seed/
 set -euo pipefail
 
-VERSION="${1:?usage: provision_version.sh <xwiki-version>}"
+VERSION="${1:?usage: provision_version.sh <xwiki-version> [--push]}"
+PUSH="${2:-}"
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+IMAGE_NS="ghcr.io/manuelleduc"   # must match the image names in compose.yml
 PROJECT="gmtxwiki-prov-$(echo "$VERSION" | tr . -)"
 SEED_DIR="$REPO_DIR/seed/$VERSION"
 
@@ -39,5 +44,18 @@ docker cp "${PROJECT}-xwiki-1":/usr/local/xwiki - | gzip > "$SEED_DIR/xwiki-data
 echo ">> Tearing down provisioning stack"
 docker compose -p "$PROJECT" -f "$REPO_DIR/provision/compose-blank.yml" down -v
 
+echo ">> Building seeded images"
+docker build -f "$REPO_DIR/docker/Dockerfile-xwiki" --build-arg "XWIKI_VERSION=$VERSION" \
+    -t "$IMAGE_NS/gmt-xwiki-seeded:$VERSION" "$REPO_DIR"
+docker build -f "$REPO_DIR/docker/Dockerfile-db" --build-arg "XWIKI_VERSION=$VERSION" \
+    -t "$IMAGE_NS/gmt-xwiki-db-seeded:$VERSION" "$REPO_DIR"
+
+if [ "$PUSH" = "--push" ]; then
+    echo ">> Pushing seeded images to $IMAGE_NS"
+    docker push "$IMAGE_NS/gmt-xwiki-seeded:$VERSION"
+    docker push "$IMAGE_NS/gmt-xwiki-db-seeded:$VERSION"
+fi
+
 ls -lh "$SEED_DIR"
 echo ">> Done. Measure with: ./run_measurements.sh -v $VERSION"
+[ "$PUSH" = "--push" ] || echo ">> For hosted-cluster runs, push the images with: ./provision/provision_version.sh $VERSION --push"

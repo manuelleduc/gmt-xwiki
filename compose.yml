@@ -1,24 +1,19 @@
 # XWiki stack with the Standard flavor pre-installed (seeded images).
 # This file is consumed by GMT, which substitutes __GMT_VAR_VERSION__
-# (passed by run_measurements.sh via --variable). The images are pre-built
-# by run_measurements.sh with `docker build --build-arg XWIKI_VERSION=...`.
-# Generate seed/<version>/ first: see provision/provision_version.sh.
+# (locally via run_measurements.sh --variable; on the hosted cluster via
+# the request form's "Variables" field).
+#
+# The images are published to GHCR by provision/provision_version.sh so the
+# measurement cluster can pull them (seed/ artifacts are not committed).
+# run_measurements.sh builds and tags them locally so local runs never pull.
 services:
   db:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile-db
-      args:
-        XWIKI_VERSION: __GMT_VAR_VERSION__
-    image: gmt-xwiki-db-seeded:__GMT_VAR_VERSION__
+    image: ghcr.io/manuelleduc/gmt-xwiki-db-seeded:__GMT_VAR_VERSION__
     environment:
       POSTGRES_USER: xwiki
       POSTGRES_PASSWORD: xwiki
       POSTGRES_DB: xwiki
-      # md5 (not the postgres 14+ scram-sha-256 default): the pgjdbc driver
-      # bundled in xwiki <= 10.x images (9.4.1212) cannot do SCRAM auth.
-      POSTGRES_HOST_AUTH_METHOD: md5
-      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale-provider=builtin --locale=C.UTF-8 --auth-host=md5"
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale-provider=builtin --locale=C.UTF-8"
     healthcheck:
       # -h 127.0.0.1 forces TCP: the unix socket is already up while the
       # init scripts (seed dump load) are still running
@@ -28,12 +23,7 @@ services:
       start_interval: 2s
 
   xwiki:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile-xwiki
-      args:
-        XWIKI_VERSION: __GMT_VAR_VERSION__
-    image: gmt-xwiki-seeded:__GMT_VAR_VERSION__
+    image: ghcr.io/manuelleduc/gmt-xwiki-seeded:__GMT_VAR_VERSION__
     depends_on:
       db:
         condition: service_healthy

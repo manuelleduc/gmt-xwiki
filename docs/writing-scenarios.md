@@ -1,0 +1,376 @@
+# Writing and debugging scenarios
+
+This guide explains how to add a new measurement scenario and how to debug
+scenario scripts efficiently — without paying the full cost of a GMT run for
+every iteration.
+
+## Anatomy of a scenario
+
+A scenario is two files, named consistently:
+
+| File | Role |
+|------|------|
+| `usage_scenario_<name>.yml` | GMT scenario: includes the shared XWiki stack from `compose.yml`, adds the Playwright runner container, and declares the `flow` (the measured steps) |
+| `playwright-files/<name>.py` | The Playwright script that simulates the user, executed inside the `greencoding/gcb_playwright` container |
+
+GMT starts the containers declared in the YAML, runs the flow commands while
+sampling energy/CPU/memory/network, and stores one "run" per scenario in its
+local PostgreSQL. The repo is mounted at `/tmp/repo` inside every container,
+which is how the container finds the scripts.
+
+Shared building blocks live in `playwright-files/helpers/helper_functions.py`:
+
+- `log_note(msg)` — prints `<timestamp_ns> message`; GMT picks these lines up
+  as timeline annotations (`read-notes-stdout: true` in the YAML). Call it
+  before **every** user action so the measurement timeline is readable.
+- `user_sleep(delay=5)` — think time between actions, so the measurement
+  reflects a human pace rather than a tight request loop.
+- `launch_browser(playwright, browser_name, headless=True)` — creates the
+  browser/context/page with a 1280×720 viewport and a 30s default timeout.
+- `login_xwiki(page)` — logs in as `Admin` / `admin1234` (baked into the seed)
+  and asserts the login worked.
+- `dismiss_tour(page)` — closes the Standard flavor's guided-tour overlay,
+  which appears on the home page for every fresh browser session and blocks
+  all clicks until dismissed.
+- `DOMAIN` — the XWiki base URL, read from `HOST_URL` (defaults to
+  `http://xwiki:8080`). Always build URLs from this so the script works both
+  inside GMT and in ad-hoc debugging setups.
+
+## Writing a new scenario
+
+### 1. Write the Playwright script
+
+Copy `playwright-files/browse.py` (anonymous flow) or `edit.py` (logged-in
+flow) as a starting point. The structure to keep:
+
+```python
+import sys
+from playwright.sync_api import Playwright, sync_playwright, expect
+from helpers.helper_functions import log_note, launch_browser, user_sleep, dismiss_tour, DOMAIN
+
+def run(playwright: Playwright, browser_name: str) -> None:
+    log_note(f"Launch browser {browser_name}")
+    browser, context, page = launch_browser(playwright, browser_name)
+    try:
+        log_note("Open home page")
+        page.goto(f"{DOMAIN}/bin/view/Main/")
+        expect(page.locator('body#body')).to_be_visible()
+        dismiss_tour(page)
+        user_sleep()
+
+        # ... one log_note() + action + user_sleep() block per user step ...
+
+        log_note("Close browser")
+        page.close()
+    except Exception as e:
+        if hasattr(e, 'message'):
+            log_note(f"Exception occurred: {e.message}")
+        raise e
+    context.close()
+    browser.close()
+
+if __name__ == "__main__":
+    browser_name = sys.argv[1].lower() if len(sys.argv) > 1 else "firefox"
+    with sync_playwright() as playwright:
+        run(playwright, browser_name)
+```
+
+Rules (see the nextcloud-gmt pattern this repo follows):
+
+- **`log_note()` around every user action** — these become the timeline
+  markers you'll use to attribute energy to steps in the dashboard.
+- **`user_sleep()` between actions** (~5s) — realistic think time.
+- **Validate with `expect()`** after meaningful actions. A broken scenario
+  must *fail loudly*; a run that silently clicked into the void would store
+  bogus measurements that pollute version comparisons.
+- **Work across all measured versions** (15.x → 17.x). Prefer feature
+  detection over version checks — e.g. `edit.py` checks whether the realtime
+  editor's *Done* button exists and falls back to the classic
+  `Save & View` input otherwise.
+- Clean up what you create (e.g. `edit.py` deletes its page) so reruns start
+  from the same wiki state. Use randomized names for created content to
+  survive a failed run that didn't clean up.
+
+### 2. Write the usage scenario YAML
+
+Copy an existing one — `usage_scenario_browse.yml` is the minimal template:
+
+```yaml
+---
+name: XWiki __GMT_VAR_VERSION__ - <Name> - PostgreSQL - Firefox
+author: You <you@example.org>
+description: One sentence describing the simulated user behaviour.
+
+compose-file: !include compose.yml
+
+services:
+  gcb-playwright:
+    image: greencoding/gcb_playwright:v21
+    depends_on:
+      - xwiki          # plain depends_on, NOT service_healthy — see below
+    environment:
+      HOST_URL: http://xwiki:8080
+    command: ["tail", "-f", "/dev/null"]
+
+flow:
+  - name: Wait for XWiki
+    container: gcb-playwright
+    hidden: true
+    commands:
+      - type: console
+        shell: bash
+        command: timeout 600 bash -c 'until curl -fs http://xwiki:8080/bin/view/Main/ -o /dev/null; do sleep 2; done'
+
+  - name: <Measured step name>
+    container: gcb-playwright
+    commands:
+      - type: console
+        command: python3 /tmp/repo/playwright-files/<name>.py firefox
+        note: <Short label>
+        read-notes-stdout: true
+```
+
+Things you must not change casually:
+
+- **Keep `__GMT_VAR_VERSION__` in `name:`** — GMT substitutes it and refuses
+  to run with unsubstituted variables; it is also how runs are grouped per
+  version in the dashboard.
+- **Keep the plain `depends_on: [xwiki]` + hidden "Wait for XWiki" step.**
+  XWiki takes minutes to boot and the hosted cluster caps GMT's healthcheck
+  wait at 60s, so readiness is handled by the hidden polling step (hidden
+  steps are excluded from the measured phases).
+- Only use compose keys GMT supports (`lib/schema_checker.py` in the GMT
+  repo): no `dns`, no named volumes, bind mounts must stay inside this repo.
+
+### 3. Run it
+
+```bash
+cd ~/green-metrics-tool/docker && docker compose up -d   # GMT infra, once
+./run_measurements.sh -v 17.10.9 <name>                  # your scenario only
+```
+
+Results appear at http://metrics.green-coding.internal:9142.
+
+To include the scenario in default batches, add it to the `SCENARIOS=(idle
+browse edit search)` default list in `run_measurements.sh`. For larger ideas
+you are not implementing now, add an entry to `BACKLOG.md` instead.
+
+## Debugging scenarios
+
+A full GMT run rebuilds containers, waits for boot, and measures — far too
+slow for iterating on a selector. Debug the Playwright script **outside GMT**
+against the same seeded images, then do one GMT run at the end to validate.
+
+### Start the XWiki stack for a given version
+
+The seeded images for the version must exist locally — they do after
+`run_measurements.sh` or `provision_version.sh` ran once for that version,
+otherwise `docker pull ghcr.io/manuelleduc/gmt-xwiki{,-db}-seeded:<version>`.
+
+```bash
+VERSION=17.10.9
+docker network create gmtxwiki-test 2>/dev/null
+docker run -d --name test-db --network gmtxwiki-test --network-alias db \
+  -e POSTGRES_USER=xwiki -e POSTGRES_PASSWORD=xwiki -e POSTGRES_DB=xwiki \
+  ghcr.io/manuelleduc/gmt-xwiki-db-seeded:$VERSION
+docker run -d --name test-xwiki --network gmtxwiki-test --network-alias xwiki \
+  -p 8080:8080 \
+  -e DB_USER=xwiki -e DB_PASSWORD=xwiki -e DB_DATABASE=xwiki -e DB_HOST=db \
+  ghcr.io/manuelleduc/gmt-xwiki-seeded:$VERSION
+
+# XWiki needs ~1–2 min; wait until it answers:
+until curl -fs http://localhost:8080/bin/view/Main/ -o /dev/null; do sleep 2; done; echo ready
+```
+
+`-p 8080:8080` also exposes the wiki on the host: you can open
+http://localhost:8080 in your own browser to explore the UI, inspect the DOM
+and try selectors in the devtools console before writing them into the script.
+
+Cleanup when done:
+
+```bash
+docker rm -f test-db test-xwiki && docker network rm gmtxwiki-test
+```
+
+### Run the script headless in the container (fastest loop)
+
+This is exactly how GMT runs it, minus the measurement:
+
+```bash
+docker run --rm --network gmtxwiki-test -v "$PWD":/tmp/repo \
+  -e HOST_URL=http://xwiki:8080 -w /tmp/repo/playwright-files \
+  greencoding/gcb_playwright:v21 python3 <name>.py firefox
+```
+
+Edit the script on the host, rerun the command — the repo is bind-mounted, no
+rebuild needed. The XWiki containers keep running between iterations, so each
+attempt costs seconds, not minutes.
+
+### Two ways to get an interactive/visible browser
+
+The container has no display, so anything visual needs one of these setups.
+**Option A (host venv)** is the most comfortable; **Option B (X11
+passthrough)** keeps everything in the exact container image GMT uses.
+
+**Option A — run the script directly on the host:**
+
+```bash
+python3 -m venv ~/.venvs/pw && source ~/.venvs/pw/bin/activate
+pip install playwright && playwright install firefox
+
+cd playwright-files
+HOST_URL=http://localhost:8080 python3 <name>.py firefox
+```
+
+`HOST_URL` points at the published port from the stack above. With this setup
+all standard Playwright debugging tools just work (Inspector, headed mode,
+`show-trace`). The Playwright version differs slightly from the container's;
+for selector/flow debugging that doesn't matter — just do a final headless
+in-container run to confirm.
+
+**Option B — X11 passthrough into the container:**
+
+```bash
+xhost +local:docker   # allow containers to use your X server
+docker run --rm -it --network gmtxwiki-test -v "$PWD":/tmp/repo \
+  -e HOST_URL=http://xwiki:8080 -e DISPLAY=$DISPLAY \
+  -v /tmp/.X11-unix:/tmp/.X11-unix \
+  -w /tmp/repo/playwright-files \
+  greencoding/gcb_playwright:v21 python3 <name>.py firefox
+```
+
+### Watch the browser live (headed mode)
+
+`launch_browser()` is headless by default. Temporarily pass `headless=False`
+at the call site in your script (revert before committing):
+
+```python
+browser, context, page = launch_browser(playwright, browser_name, headless=False)
+```
+
+Then run via Option A or B. Combine with `slow_mo` if actions fly by too fast
+— add it temporarily in `launch_browser()`:
+`playwright.firefox.launch(headless=headless, slow_mo=500)`.
+
+### Breakpoints and step-by-step execution
+
+**Playwright Inspector (recommended).** Set `PWDEBUG=1` and the script starts
+paused in the Inspector window: step over each Playwright call, see the
+locator highlighted in the live browser, and use the *Pick locator* tool to
+find selectors. Needs a display, so use Option A or B:
+
+```bash
+PWDEBUG=1 HOST_URL=http://localhost:8080 python3 <name>.py firefox
+```
+
+(With `PWDEBUG=1` Playwright forces headed mode and disables the default
+timeout, no code change needed.)
+
+**Pause at a specific point.** Insert `page.pause()` where you want to stop;
+the Inspector opens there and you can continue or step. Also needs a display.
+
+**Plain Python debugger (works headless, no display needed).** Insert
+`breakpoint()` in the script, then run interactively in the container:
+
+```bash
+docker run --rm -it --network gmtxwiki-test -v "$PWD":/tmp/repo \
+  -e HOST_URL=http://xwiki:8080 -w /tmp/repo/playwright-files \
+  greencoding/gcb_playwright:v21 python3 <name>.py firefox
+```
+
+At the `(Pdb)` prompt you can run arbitrary Playwright calls against the live
+page: `page.url`, `page.locator('#tmActionDelete').count()`,
+`page.screenshot(path='/tmp/repo/debug/now.png')`, `n`/`c` to step/continue.
+This is the quickest way to try selectors against a hard-to-reach UI state.
+
+### Screenshots, videos and traces
+
+The repo is mounted at `/tmp/repo`, so anything written under it lands in
+your working copy. Use a `debug/` subdirectory and don't commit it.
+
+**Screenshot on failure** — temporarily extend the `except` block:
+
+```python
+    except Exception as e:
+        page.screenshot(path="/tmp/repo/debug/failure.png", full_page=True)
+        ...
+```
+
+**Trace (the most useful artifact)** — records every action with before/after
+DOM snapshots, screenshots, console and network logs:
+
+```python
+browser, context, page = launch_browser(playwright, browser_name)
+context.tracing.start(screenshots=True, snapshots=True, sources=True)
+try:
+    ...
+finally:
+    context.tracing.stop(path="/tmp/repo/debug/trace.zip")
+```
+
+View it with `playwright show-trace debug/trace.zip` (from the Option A venv)
+or drag the zip onto https://trace.playwright.dev — the viewer runs entirely
+in your browser, the trace is not uploaded. You can hover each step and see
+the page exactly as it was, which usually identifies a bad selector or a
+race immediately.
+
+**Video** — `record_video_dir` must be set when the context is created, so
+temporarily add it in `launch_browser()`:
+
+```python
+context = browser.new_context(viewport={'width': 1280, 'height': 720},
+                              record_video_dir='/tmp/repo/debug/videos/')
+```
+
+Videos are finalized when `context.close()` runs, so they only appear for
+runs that reach the cleanup code (traces and screenshots don't have this
+constraint — prefer traces).
+
+### Debugging at the GMT level
+
+Once the script is solid, problems left are usually YAML/orchestration ones.
+Useful `runner.py` flags (always `source ~/green-metrics-tool/venv/bin/activate`
+first; `run_measurements.sh` shows the full invocation to copy from):
+
+- `--print-logs` — dump all container and flow-command output at the end of
+  the run (already passed by `run_measurements.sh`). The first place to look
+  when a run fails: your script's `log_note` lines and the Python traceback
+  are in there.
+- `--dev-no-save --dev-no-metrics` — orchestration-only run: no measurement
+  providers, nothing stored in the DB. Much faster for validating the YAML.
+- `--dev-no-sleeps` — skip GMT's pre/post/idle sleeps (skews measurements;
+  debugging only).
+- `--debug` — steppable mode: GMT pauses before each step and waits for you
+  to confirm, so you can `docker ps`, exec into containers, or check the wiki
+  between flow steps.
+- `--dev-flow-timetravel` — on a flow failure, lets you retry the failed flow
+  or jump back to the start of the flows without rebooting the whole stack.
+
+Example orchestration-only check of a new scenario:
+
+```bash
+source ~/green-metrics-tool/venv/bin/activate
+python3 ~/green-metrics-tool/runner.py \
+  --uri ~/gmt-xwiki --filename usage_scenario_<name>.yml \
+  --name "debug <name>" --variable "__GMT_VAR_VERSION__=17.10.9" \
+  --measurement-wait-time-dependencies 600 \
+  --dev-cache-build --dev-no-save --dev-no-metrics --print-logs
+```
+
+### Common pitfalls
+
+- **The guided tour overlay** steals every click on the home page of a fresh
+  session. Call `dismiss_tour(page)` after the first navigation there.
+- **XWiki is slow to start** (~1–2 min, more on first request to a page).
+  When testing manually, wait for the `curl` loop before blaming your script.
+- **Hidden-but-enabled buttons**: XWiki UIs (and the Distribution Wizard in
+  particular) keep enabled but invisible buttons in the DOM. Always assert
+  visibility (`expect(...).to_be_visible()` or `is_visible()`) before
+  clicking by JS or `.first.click()` on broad locators.
+- **Version drift**: a selector that works on 17.x may not exist on 15.x.
+  Test against every version in the measurement matrix
+  (`./run_measurements.sh -v 17.10.9,16.10.17,15.10.16 <name>`), and use
+  feature detection in the script rather than version sniffing.
+- **`compose.yml` is not plain docker compose** — it contains
+  `__GMT_VAR_VERSION__`, so `docker compose up` on it fails. Use the manual
+  `docker run` stack above for ad-hoc testing.
