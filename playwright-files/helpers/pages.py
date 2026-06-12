@@ -141,9 +141,20 @@ class CreateForm(BasePage):
 
     def create(self, title: str) -> "Editor":
         self.page.locator('#targetTitle').fill(title)
-        self.page.locator('form#create [type=submit]').first.click()
-        self.page.wait_for_load_state('domcontentloaded')
-        return Editor(self.page)
+        editor_frame = self.page.locator('iframe.cke_wysiwyg_frame')
+        create_form = self.page.locator('form#create')
+        # the form validates the title/location asynchronously and swallows
+        # submits that arrive before validation finishes (seen on 12.x/13.x),
+        # so re-click as long as we are still on the form
+        for _ in range(6):
+            if create_form.count() and create_form.first.is_visible():
+                self.page.locator('form#create [type=submit]').first.click()
+            try:
+                expect(editor_frame).to_be_visible(timeout=5_000)
+                return Editor(self.page)
+            except AssertionError:
+                continue
+        raise AssertionError('create never reached the WYSIWYG editor')
 
 
 class Editor(BasePage):
