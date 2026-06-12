@@ -95,7 +95,8 @@ Rules (see the nextcloud-gmt pattern this repo follows):
   add a method to the matching page object in `helpers/pages.py` (or a new
   page object class for a new screen). That keeps the interaction reusable
   by the next scenario and gives selector fixes a single home when the skin
-  changes between XWiki versions.
+  changes between XWiki versions. To find the selectors, record the
+  interaction with `playwright codegen` (see the debugging section).
 - **Validate with `expect()`** after meaningful actions — inside the page
   object methods (e.g. `login()` asserts the navbar avatar). A broken
   scenario must *fail loudly*; a run that silently clicked into the void
@@ -219,9 +220,25 @@ HOST_URL=http://localhost:8080 python3 <name>.py firefox
 
 `HOST_URL` points at the published port from the stack above. With this setup
 all standard Playwright debugging tools just work (Inspector, headed mode,
-`show-trace`). The Playwright version differs slightly from the container's;
-for selector/flow debugging that doesn't matter — just do a final headless
-in-container run to confirm.
+`show-trace`, `codegen`). The Playwright version differs slightly from the
+container's; for selector/flow debugging that doesn't matter — just do a
+final headless in-container run to confirm.
+
+### Draft new interactions with `playwright codegen`
+
+The fastest way to find working selectors for a new page-object method or
+scenario is to record yourself doing it. With the stack up (Option A venv):
+
+```bash
+playwright codegen http://localhost:8080
+```
+
+A browser opens next to an inspector window: click through the interaction
+(log in as `Admin` / `admin1234` if needed) and Playwright emits Python code
+with selectors for every action. Treat the output as a draft — move the
+selectors into page-object methods in `helpers/pages.py`, replace generated
+waits with `expect()` assertions, and prefer stable ids/roles over the
+sometimes brittle text selectors codegen picks.
 
 **Option B — X11 passthrough into the container:**
 
