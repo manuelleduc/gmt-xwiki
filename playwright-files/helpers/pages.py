@@ -21,7 +21,7 @@ class BasePage:
 
 class LoginPage(BasePage):
     def login(self, username=USERNAME, password=PASSWORD) -> "ViewPage":
-        self.page.goto(f"{DOMAIN}/bin/login/XWiki/XWikiLogin")
+        self.page.goto(f"{DOMAIN}/bin/login/XWiki/XWikiLogin", wait_until='domcontentloaded')
         self.page.locator('#j_username').fill(username)
         self.page.locator('#j_password').fill(password)
         self.page.locator('#loginForm input[type=submit]').click()
@@ -36,7 +36,7 @@ class ViewPage(BasePage):
 
     def goto(self, reference: str) -> "ViewPage":
         """Open a document by view path, e.g. 'Main/' or 'Main/AllDocs'."""
-        self.page.goto(f"{DOMAIN}/bin/view/{reference}")
+        self.page.goto(f"{DOMAIN}/bin/view/{reference}", wait_until='domcontentloaded')
         expect(self.page.locator('body#body')).to_be_visible()
         return self
 
@@ -75,7 +75,7 @@ class ViewPage(BasePage):
 
     def follow_link(self, name: str) -> "ViewPage":
         self.page.get_by_role("link", name=name).first.click()
-        self.page.wait_for_load_state()
+        self.page.wait_for_load_state('domcontentloaded')
         return self
 
     def expect_title_contains(self, text: str) -> None:
@@ -92,9 +92,12 @@ class ViewPage(BasePage):
         from playwright.sync_api import TimeoutError as PWTimeout
         search_input = self.page.locator('#headerglobalsearchinput')
         for _ in range(5):
-            if not search_input.is_enabled():
+            # collapsed state: disabled on modern skins, enabled-but-hidden on
+            # old ones (9.x) — expand via the search button in both cases
+            if not (search_input.is_enabled() and search_input.is_visible()):
                 self.page.locator('#globalsearch button[title="Search"]').click()
                 expect(search_input).to_be_enabled()
+                expect(search_input).to_be_visible()
             if search_input.input_value() != term:
                 search_input.fill('')
                 search_input.type(term, delay=50)
@@ -102,7 +105,7 @@ class ViewPage(BasePage):
                 continue  # widget still initializing, it wiped the text
             search_input.press('Enter')
             try:
-                self.page.wait_for_url('**/Main/Search*', timeout=5_000)
+                self.page.wait_for_url('**/Main/Search*', timeout=5_000, wait_until='domcontentloaded')
                 return SearchResultsPage(self.page)
             except PWTimeout:
                 continue
@@ -110,7 +113,7 @@ class ViewPage(BasePage):
 
     def open_create_form(self) -> "CreateForm":
         self.page.locator('a.btn[title="Create"]').click()
-        self.page.wait_for_load_state()
+        self.page.wait_for_load_state('domcontentloaded')
         return CreateForm(self.page)
 
     def delete(self) -> "ViewPage":
@@ -118,7 +121,7 @@ class ViewPage(BasePage):
         # the More Actions dropdown is JS-driven: a click before its handler
         # is bound does nothing and the menu never opens, so verify and retry
         for _ in range(5):
-            self.page.locator('button[title="More Actions"]').click()
+            self.page.locator('button[title="More Actions"], a[title="More Actions"]').click()
             try:
                 expect(delete_item).to_be_visible(timeout=5_000)
                 break
@@ -127,9 +130,9 @@ class ViewPage(BasePage):
         else:
             raise AssertionError('More Actions menu never opened')
         delete_item.click()
-        self.page.wait_for_load_state()
+        self.page.wait_for_load_state('domcontentloaded')
         self.page.locator('button.confirm.btn-danger, button.btn-danger.confirm').first.click()
-        self.page.wait_for_load_state()
+        self.page.wait_for_load_state('domcontentloaded')
         return self
 
 
@@ -139,7 +142,7 @@ class CreateForm(BasePage):
     def create(self, title: str) -> "Editor":
         self.page.locator('#targetTitle').fill(title)
         self.page.locator('form#create [type=submit]').first.click()
-        self.page.wait_for_load_state()
+        self.page.wait_for_load_state('domcontentloaded')
         return Editor(self.page)
 
 
@@ -159,7 +162,7 @@ class Editor(BasePage):
             done_button.first.click()
         else:
             self.page.locator('input[name=action_save]').click()
-        self.page.wait_for_load_state()
+        self.page.wait_for_load_state('domcontentloaded')
         return ViewPage(self.page)
 
 
@@ -176,5 +179,5 @@ class SearchResultsPage(BasePage):
 
     def open_first_result(self) -> "ViewPage":
         self.results.first.locator('a').first.click()
-        self.page.wait_for_load_state()
+        self.page.wait_for_load_state('domcontentloaded')
         return ViewPage(self.page)
