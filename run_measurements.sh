@@ -64,6 +64,8 @@ for version in "${VERSION_LIST[@]}"; do
 done
 
 for version in "${VERSION_LIST[@]}"; do
+    # xwiki <= 10.x bundles pgjdbc 9.4.1212, which cannot do SCRAM auth
+    if [ "${version%%.*}" -le 10 ]; then pg_auth=md5; else pg_auth=scram-sha-256; fi
     for scenario in "${SCENARIOS[@]}"; do
         echo "=== Measuring XWiki $version, scenario: $scenario ==="
         python3 "$GMT_DIR/runner.py" \
@@ -71,6 +73,7 @@ for version in "${VERSION_LIST[@]}"; do
             --filename "usage_scenario_${scenario}.yml" \
             --name "xwiki-${version} ${scenario}" \
             --variable "__GMT_VAR_VERSION__=${version}" \
+            --variable "__GMT_VAR_PG_AUTH__=${pg_auth}" \
             --measurement-wait-time-dependencies 600 \
             --dev-cache-build \
             --print-logs

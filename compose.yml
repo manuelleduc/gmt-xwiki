@@ -13,7 +13,11 @@ services:
       POSTGRES_USER: xwiki
       POSTGRES_PASSWORD: xwiki
       POSTGRES_DB: xwiki
-      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale-provider=builtin --locale=C.UTF-8"
+      # md5 for xwiki <= 10.x (their bundled pgjdbc 9.4.1212 cannot do SCRAM),
+      # the postgres scram-sha-256 default for >= 11.x (pgjdbc 42.2.10+).
+      # The value is computed from the version by the run scripts.
+      POSTGRES_HOST_AUTH_METHOD: __GMT_VAR_PG_AUTH__
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale-provider=builtin --locale=C.UTF-8 --auth-host=__GMT_VAR_PG_AUTH__"
     healthcheck:
       # -h 127.0.0.1 forces TCP: the unix socket is already up while the
       # init scripts (seed dump load) are still running

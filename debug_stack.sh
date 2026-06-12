@@ -20,12 +20,20 @@ DEFAULT_VERSION="17.10.9"             # keep in sync with run_measurements.sh
 PLAYWRIGHT_IMAGE="greencoding/gcb_playwright:v21"
 NETWORK=gmtxwiki-test
 
+pg_auth_for_version() {
+  [ "${1%%.*}" -le 10 ] 2>/dev/null && echo md5 || echo scram-sha-256
+}
+
 case "${1:-}" in
   up)
     version="${2:-$DEFAULT_VERSION}"
     docker network create "$NETWORK" >/dev/null 2>&1 || true
+    # xwiki <= 10.x bundles pgjdbc 9.4.1212, which cannot do SCRAM auth
+    pg_auth=$(pg_auth_for_version "$version")
     docker run -d --name test-db --network "$NETWORK" --network-alias db \
       -e POSTGRES_USER=xwiki -e POSTGRES_PASSWORD=xwiki -e POSTGRES_DB=xwiki \
+      -e POSTGRES_HOST_AUTH_METHOD="$pg_auth" \
+      -e POSTGRES_INITDB_ARGS="--auth-host=$pg_auth" \
       "$IMAGE_NS/gmt-xwiki-db-seeded:$version" >/dev/null
     docker run -d --name test-xwiki --network "$NETWORK" --network-alias xwiki \
       -p 8080:8080 \

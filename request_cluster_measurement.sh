@@ -73,6 +73,8 @@ fi
 
 IFS=',' read -ra VERSION_LIST <<< "$VERSIONS"
 for version in "${VERSION_LIST[@]}"; do
+    # xwiki <= 10.x bundles pgjdbc 9.4.1212, which cannot do SCRAM auth
+    if [ "${version%%.*}" -le 10 ]; then pg_auth=md5; else pg_auth=scram-sha-256; fi
     for scenario in "${SCENARIOS[@]}"; do
         echo "=== Requesting cluster run: xwiki-$version $scenario (machine $MACHINE_ID, $SCHEDULE) ==="
         payload="$(jq -n \
@@ -84,9 +86,10 @@ for version in "${VERSION_LIST[@]}"; do
             --argjson machine_id "$MACHINE_ID" \
             --arg schedule_mode "$SCHEDULE" \
             --arg version "$version" \
+            --arg pg_auth "$pg_auth" \
             '{name: $name, repo_url: $repo_url, email: $email, filename: $filename,
               branch: $branch, machine_id: $machine_id, schedule_mode: $schedule_mode,
-              usage_scenario_variables: {"__GMT_VAR_VERSION__": $version}}')"
+              usage_scenario_variables: {"__GMT_VAR_VERSION__": $version, "__GMT_VAR_PG_AUTH__": $pg_auth}}')"
         curl -fsS -X POST "$API_URL/v1/software/add" \
             -H 'Content-Type: application/json' \
             "${AUTH_ARGS[@]}" \

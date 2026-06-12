@@ -40,9 +40,11 @@ Results dashboard: http://metrics.green-coding.internal:9142 (GMT frontend).
 ./request_cluster_measurement.sh -v 17.10.9,16.10.17,15.10.16   # full matrix
 ```
 The script POSTs to the same API as https://metrics.green-coding.io/request.html
-(`/v1/software/add`), passing `usage_scenario_<name>.yml` as filename and
-`__GMT_VAR_VERSION__=<version>` as variable (required — GMT rejects unsubstituted variables;
-the root `usage_scenario.yml` symlinks to browse for manual form submissions).
+(`/v1/software/add`), passing `usage_scenario_<name>.yml` as filename and two variables
+(required — GMT rejects unsubstituted variables; the root `usage_scenario.yml` symlinks to
+browse for manual form submissions): `__GMT_VAR_VERSION__=<version>` and
+`__GMT_VAR_PG_AUTH__=<md5|scram-sha-256>` (md5 for xwiki <= 10.x whose bundled pgjdbc
+cannot do SCRAM; scram-sha-256 otherwise — the scripts compute this from the version).
 Prerequisites: repo pushed to a public host, and the seeded images for that version published
 to GHCR (`provision_version.sh <version> --push`) and set to public visibility on GHCR.
 
