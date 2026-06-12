@@ -2,6 +2,8 @@
 seed/
 # Failure screenshots and other scenario debugging artifacts
 debug/
+# Generated measurement reports (generate_report.py)
+report/
 __pycache__/
 .idea/
 .claude/

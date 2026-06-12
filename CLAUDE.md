@@ -46,6 +46,15 @@ the root `usage_scenario.yml` symlinks to browse for manual form submissions).
 Prerequisites: repo pushed to a public host, and the seeded images for that version published
 to GHCR (`provision_version.sh <version> --push`) and set to public visibility on GHCR.
 
+### Generate a cross-version report (web + PDF)
+```bash
+./generate_report.py --pdf     # → report/index.html + report/report.pdf (gitignored)
+```
+Fetches the latest successful run per version/scenario from the hosted API
+(`--api-url`/`--uri` override for a local GMT instance) and charts the
+`[RUNTIME]` metrics across versions. PDF rendering uses local Playwright if
+installed, else the `gcb_playwright` container.
+
 ### Test a scenario script without GMT (fast iteration)
 ```bash
 # images exist after run_measurements.sh built them once for that version
