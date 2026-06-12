@@ -28,19 +28,21 @@ from pathlib import Path
 
 RUN_NAME_RE = re.compile(r'^xwiki-(?P<version>[0-9.]+) (?P<scenario>\w+)$')
 
-# metric key -> (label, detail selector, divisor, display unit)
-# detail selector: explicit detail name, 'first' or 'sum' (over containers)
-METRICS = [
-    ('psu_energy_ac_mcp_machine',     'Machine energy',        'first', 1e6, 'J'),
-    ('psu_power_ac_mcp_machine',      'Avg. machine power',    'first', 1e3, 'W'),
-    ('cpu_energy_rapl_msr_component', 'CPU package energy',    'first', 1e6, 'J'),
-    ('psu_carbon_ac_mcp_machine',     'Operational carbon',    'first', 1e3, 'mgCO2e'),
-    ('phase_time_syscall_system',     'Runtime duration',      'first', 1e6, 's'),
-    ('cpu_utilization_procfs_system', 'CPU utilization',       'first', 1e2, '%'),
-    ('memory_used_cgroup_container',  'XWiki container memory', 'xwiki', 1e6, 'MB'),
-    ('network_total_cgroup_container', 'Network traffic',      'sum',   1e6, 'MB'),
+# Energy/power/carbon metrics are reported net of the machine's [BASELINE]
+# idle consumption so versions stay comparable across machines and runs.
+# label -> display unit (also fixes chart/table ordering)
+DISPLAY_METRICS = [
+    ('Server-side energy (xwiki+db)',      'J'),
+    ('Machine energy above baseline',      'J'),
+    ('Avg. machine power above baseline',  'W'),
+    ('CPU package energy above baseline',  'J'),
+    ('Operational carbon above baseline',  'mgCO2e'),
+    ('Runtime duration',                   's'),
+    ('CPU utilization',                    '%'),
+    ('XWiki container memory',             'MB'),
+    ('Network traffic',                    'MB'),
 ]
-ATTRIBUTION_METRIC = 'psu_energy_cgroup_container'   # per-container energy share
+ATTRIBUTION_METRIC = 'psu_energy_cgroup_container'   # per-container energy split (sums to total machine energy)
 
 
 def api_get(api_url, path):
@@ -99,14 +101,47 @@ def collect(api_url, runs):
         print(f"  fetching phase stats: xwiki-{version} {scenario} ({meta['id']})")
         stats = api_get(api_url, f"/v1/phase_stats/single/{meta['id']}")['data']['data']
         runtime = stats.get('[RUNTIME]', {}).get('data', {})
-        values = {}
-        for metric, label, detail, div, unit in METRICS:
-            raw = extract_value(runtime, metric, detail)
-            values[label] = None if raw is None else round(raw / div, 2)
+        baseline = stats.get('[BASELINE]', {}).get('data', {})
+        raw = lambda metric, detail='first', src=runtime: extract_value(src, metric, detail)
+
+        dur_us = raw('phase_time_syscall_system')
+        # baseline powers in mW; mW * us / 1000 = uJ over the runtime phase
+        psu_base_mw = raw('psu_power_ac_mcp_machine', src=baseline) or 0
+        cpu_base_mw = raw('cpu_power_rapl_msr_component', src=baseline) or 0
+        e_total_uj = raw('psu_energy_ac_mcp_machine')
+        e_surplus_uj = None if e_total_uj is None else e_total_uj - psu_base_mw * dur_us / 1000
+        cpu_e_uj = raw('cpu_energy_rapl_msr_component')
+        carbon_ug = raw('psu_carbon_ac_mcp_machine')
+
+        # GMT splits the *total* machine energy over containers by CPU share;
+        # rescale to the surplus so the baseline floor stays with the host
         attribution = {}
-        attr = runtime.get(ATTRIBUTION_METRIC, {}).get('data', {})
-        for container, d in attr.items():
-            attribution[container] = round(next(iter(d['data'].values()))['mean'] / 1e6, 2)
+        for container, d in runtime.get(ATTRIBUTION_METRIC, {}).get('data', {}).items():
+            attribution[container] = next(iter(d['data'].values()))['mean'] / 1e6
+        attr_sum = sum(attribution.values())
+        if attr_sum and e_surplus_uj is not None:
+            scale = (e_surplus_uj / 1e6) / attr_sum
+            attribution = {k: round(v * scale, 2) for k, v in attribution.items()}
+
+        def r(value, div=1):
+            return None if value is None else round(value / div, 2)
+
+        values = {
+            # excludes the load-generating browser container and GMT overhead
+            'Server-side energy (xwiki+db)': r((attribution.get('xwiki') or 0) + (attribution.get('db') or 0))
+                                             if 'xwiki' in attribution else None,
+            'Machine energy above baseline': r(e_surplus_uj, 1e6),
+            'Avg. machine power above baseline': r((raw('psu_power_ac_mcp_machine') or 0) - psu_base_mw, 1e3)
+                                                 if raw('psu_power_ac_mcp_machine') is not None else None,
+            'CPU package energy above baseline': r(None if cpu_e_uj is None else cpu_e_uj - cpu_base_mw * dur_us / 1000, 1e6),
+            # scale total carbon by the surplus share (intensity is constant within a run)
+            'Operational carbon above baseline': r(None if carbon_ug is None or not e_total_uj
+                                                   else carbon_ug * e_surplus_uj / e_total_uj, 1e3),
+            'Runtime duration': r(dur_us, 1e6),
+            'CPU utilization': r(raw('cpu_utilization_procfs_system'), 1e2),
+            'XWiki container memory': r(raw('memory_used_cgroup_container', 'xwiki'), 1e6),
+            'Network traffic': r(raw('network_total_cgroup_container', 'sum'), 1e6),
+        }
         out[(version, scenario)] = {**meta, 'metrics': values, 'attribution': attribution}
     return out
 
@@ -114,10 +149,10 @@ def collect(api_url, runs):
 def build_html(data, api_url, uri):
     versions = sorted({v for v, _ in data}, key=version_key)
     scenarios = sorted({s for _, s in data})
-    units = {label: unit for _, label, _, _, unit in METRICS}
+    units = dict(DISPLAY_METRICS)
 
     series_per_metric = {}
-    for _, label, _, _, _ in METRICS:
+    for label, _ in DISPLAY_METRICS:
         series_per_metric[label] = {
             s: [data.get((v, s), {}).get('metrics', {}).get(label) for v in versions]
             for s in scenarios
@@ -174,9 +209,16 @@ Latest successful run per version/scenario, metrics from the measured <code>[RUN
 <h2>Runs included</h2>
 <div id="table"></div>
 
-<p class="footnote">Operational carbon uses the live grid intensity at the time of each
-run (electricitymaps), so carbon values are not directly comparable across runs —
-compare energy instead. Memory/CPU/network are means or totals over the runtime phase.</p>
+<p class="footnote">Energy, power and carbon are reported net of the machine's idle
+baseline (measured in each run's <code>[BASELINE]</code> phase) so values reflect the
+workload, not the host. The attribution charts and "Server-side energy" split that
+baseline-corrected energy over containers by CPU share; "Server-side energy" sums
+xwiki+db, excluding the load-generating browser container (a simulated client on server
+hardware) and GMT overhead — the browser's share remains visible in the attribution
+charts. Operational carbon uses the live grid
+intensity at the time of each run (electricitymaps), so carbon values are not directly
+comparable across runs — compare energy instead. Memory/CPU/network are means or totals
+over the runtime phase.</p>
 
 <script>
 const D = {payload};
