@@ -54,6 +54,12 @@ return the page object for the screen the user lands on:
 - `SearchResultsPage` — `expect_results()`, `result_count()`,
   `open_first_result()` → `ViewPage`.
 
+One set of page objects serves **all** measured versions (15.x → 17.x),
+verified against the whole matrix; UI differences are handled by feature
+detection inside the method (e.g. `Editor.save_and_view()`). Only split a
+page object per version if a UI diverges so much that feature detection
+makes the method unreadable — so far none has.
+
 ## Writing a new scenario
 
 ### 1. Write the Playwright script
@@ -366,6 +372,16 @@ python3 ~/green-metrics-tool/runner.py \
 
 - **The guided tour overlay** steals every click on the home page of a fresh
   session. Call `ViewPage.dismiss_tour()` after the first navigation there.
+- **Progressive-enhancement races**: XWiki widgets (quick search, the More
+  Actions dropdown, …) are wired up by async JS after the DOM is in place.
+  Interacting too early *silently does nothing* — a click opens no menu,
+  typed text gets wiped by the widget's init, and `wait_for_load_state()`
+  cannot detect a navigation that never started. Page-object methods must
+  verify the *effect* of an interaction (menu actually open, input actually
+  holding the text, URL actually changed) and retry, like
+  `ViewPage.search()` and `ViewPage.delete()` do. `THINK_TIME=0` makes these
+  races reproducible locally; the same races bite at human pace on slow
+  machines, so treat a fast-pace failure as a real bug, not a debug artifact.
 - **XWiki is slow to start** (~1–2 min, more on first request to a page).
   When testing manually, wait for the `curl` loop before blaming your script.
 - **Hidden-but-enabled buttons**: XWiki UIs (and the Distribution Wizard in

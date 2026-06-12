@@ -83,13 +83,30 @@ class ViewPage(BasePage):
         expect(self.page.locator('#document-title').first).to_contain_text(text)
 
     def search(self, term: str) -> "SearchResultsPage":
-        self.page.locator('#globalsearch button[title="Search"]').click()
+        # The quick-search widget initializes asynchronously. Interacting
+        # before it settles loses input in two observed ways: text typed
+        # while the expand animation / tour teardown is still running gets
+        # wiped, and after an Enter on a (wiped, hence empty) input the
+        # widget re-collapses and re-disables the input. So: verify the
+        # typed text stuck before Enter, and re-open/re-type on retry.
+        from playwright.sync_api import TimeoutError as PWTimeout
         search_input = self.page.locator('#headerglobalsearchinput')
-        expect(search_input).to_be_enabled()
-        search_input.type(term, delay=50)
-        search_input.press('Enter')
-        self.page.wait_for_load_state()
-        return SearchResultsPage(self.page)
+        for _ in range(5):
+            if not search_input.is_enabled():
+                self.page.locator('#globalsearch button[title="Search"]').click()
+                expect(search_input).to_be_enabled()
+            if search_input.input_value() != term:
+                search_input.fill('')
+                search_input.type(term, delay=50)
+            if search_input.input_value() != term:
+                continue  # widget still initializing, it wiped the text
+            search_input.press('Enter')
+            try:
+                self.page.wait_for_url('**/Main/Search*', timeout=5_000)
+                return SearchResultsPage(self.page)
+            except PWTimeout:
+                continue
+        raise AssertionError('quick search never accepted the term and navigated to Main/Search')
 
     def open_create_form(self) -> "CreateForm":
         self.page.locator('a.btn[title="Create"]').click()
@@ -97,8 +114,19 @@ class ViewPage(BasePage):
         return CreateForm(self.page)
 
     def delete(self) -> "ViewPage":
-        self.page.locator('button[title="More Actions"]').click()
-        self.page.locator('#tmActionDelete').click()
+        delete_item = self.page.locator('#tmActionDelete')
+        # the More Actions dropdown is JS-driven: a click before its handler
+        # is bound does nothing and the menu never opens, so verify and retry
+        for _ in range(5):
+            self.page.locator('button[title="More Actions"]').click()
+            try:
+                expect(delete_item).to_be_visible(timeout=5_000)
+                break
+            except AssertionError:
+                continue
+        else:
+            raise AssertionError('More Actions menu never opened')
+        delete_item.click()
         self.page.wait_for_load_state()
         self.page.locator('button.confirm.btn-danger, button.btn-danger.confirm').first.click()
         self.page.wait_for_load_state()
