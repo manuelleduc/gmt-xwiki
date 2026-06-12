@@ -26,11 +26,21 @@ def user_sleep(delay=5):
 
 
 def launch_browser(playwright, browser_name='firefox', headless=True):
+    # debug knobs, all off by default (see docs/writing-scenarios.md):
+    # HEADFUL=1 shows the browser, SLOW_MO=<ms> slows every action down,
+    # VIDEO=1 records to <repo>/debug/videos/
+    if os.environ.get('HEADFUL') == '1':
+        headless = False
+    slow_mo = int(os.environ.get('SLOW_MO', '0'))
     if browser_name == 'firefox':
-        browser = playwright.firefox.launch(headless=headless)
+        browser = playwright.firefox.launch(headless=headless, slow_mo=slow_mo)
     else:
-        browser = playwright.chromium.launch(headless=headless, args=['--disable-gpu', '--disable-software-rasterizer'])
-    context = browser.new_context(viewport={'width': 1280, 'height': 720})
+        browser = playwright.chromium.launch(headless=headless, slow_mo=slow_mo,
+                                             args=['--disable-gpu', '--disable-software-rasterizer'])
+    context_args = {'viewport': {'width': 1280, 'height': 720}}
+    if os.environ.get('VIDEO') == '1':
+        context_args['record_video_dir'] = str(REPO_DIR / 'debug' / 'videos')
+    context = browser.new_context(**context_args)
     context.set_default_timeout(30_000)
     page = context.new_page()
     return browser, context, page
@@ -39,9 +49,12 @@ def launch_browser(playwright, browser_name='firefox', headless=True):
 @contextmanager
 def scenario(playwright, browser_name='firefox', headless=True):
     """Browser lifecycle for a scenario script: yields the page, logs and
-    screenshots failures (to <repo>/debug/), and always closes the browser."""
+    screenshots failures (to <repo>/debug/), and always closes the browser.
+    TRACE=1 records a Playwright trace to <repo>/debug/."""
     log_note(f"Launch browser {browser_name}")
     browser, context, page = launch_browser(playwright, browser_name, headless)
+    if os.environ.get('TRACE') == '1':
+        context.tracing.start(screenshots=True, snapshots=True, sources=True)
     try:
         yield page
     except Exception as e:
@@ -49,9 +62,22 @@ def scenario(playwright, browser_name='firefox', headless=True):
         _screenshot_on_failure(page)
         raise
     finally:
+        if os.environ.get('TRACE') == '1':
+            _stop_tracing(context)
         log_note("Close browser")
         context.close()
         browser.close()
+
+
+def _stop_tracing(context):
+    # best effort: never mask the scenario's own error
+    try:
+        path = REPO_DIR / 'debug' / f"trace-{Path(sys.argv[0]).stem}-{str(time_ns())[:16]}.zip"
+        path.parent.mkdir(exist_ok=True)
+        context.tracing.stop(path=str(path))
+        log_note(f"Trace saved to {path} (view: playwright show-trace, or trace.playwright.dev)")
+    except Exception:
+        pass
 
 
 def _screenshot_on_failure(page):

@@ -256,18 +256,26 @@ docker run --rm -it --network gmtxwiki-test -v "$PWD":/tmp/repo \
   greencoding/gcb_playwright:v21 python3 <name>.py firefox
 ```
 
-### Watch the browser live (headed mode)
+### Debug knobs (environment variables)
 
-`scenario()` is headless by default. Temporarily pass `headless=False` at the
-call site in your script (revert before committing):
+`launch_browser()`/`scenario()` read a few debug switches from the
+environment, all off by default so GMT runs are unaffected and there is
+nothing to revert before committing:
 
-```python
-with scenario(playwright, browser_name, headless=False) as page:
+| Variable | Effect |
+|----------|--------|
+| `HEADFUL=1` | show the browser window (needs a display: Option A or B) |
+| `SLOW_MO=500` | slow every Playwright action down by N ms |
+| `TRACE=1` | record a Playwright trace to `debug/trace-<script>-<ts>.zip` |
+| `VIDEO=1` | record a video of the run to `debug/videos/` |
+
+They combine freely, e.g. watch a run at human speed:
+
+```bash
+HEADFUL=1 SLOW_MO=500 HOST_URL=http://localhost:8080 python3 <name>.py firefox
 ```
 
-Then run via Option A or B. Combine with `slow_mo` if actions fly by too fast
-— add it temporarily in `launch_browser()` (`helpers/helper_functions.py`):
-`playwright.firefox.launch(headless=headless, slow_mo=500)`.
+In the container, pass them with `-e`: `docker run -e TRACE=1 ...`.
 
 ### Breakpoints and step-by-step execution
 
@@ -312,34 +320,25 @@ prints the path in the output. For an ad-hoc screenshot at a specific point,
 insert `page.screenshot(path="/tmp/repo/debug/now.png", full_page=True)`.
 
 **Trace (the most useful artifact)** — records every action with before/after
-DOM snapshots, screenshots, console and network logs. Temporarily wrap the
-scenario body:
+DOM snapshots, screenshots, console and network logs. Run with `TRACE=1`:
 
-```python
-with scenario(playwright, browser_name) as page:
-    page.context.tracing.start(screenshots=True, snapshots=True, sources=True)
-    try:
-        ...
-    finally:
-        page.context.tracing.stop(path="/tmp/repo/debug/trace.zip")
+```bash
+docker run --rm --network gmtxwiki-test -v "$PWD":/tmp/repo \
+  -e HOST_URL=http://xwiki:8080 -e TRACE=1 -w /tmp/repo/playwright-files \
+  greencoding/gcb_playwright:v21 python3 <name>.py firefox
 ```
 
-View it with `playwright show-trace debug/trace.zip` (from the Option A venv)
-or drag the zip onto https://trace.playwright.dev — the viewer runs entirely
-in your browser, the trace is not uploaded. You can hover each step and see
-the page exactly as it was, which usually identifies a bad selector or a
-race immediately.
+The trace lands in `debug/trace-<script>-<timestamp>.zip` (works for failed
+runs too — the trace is saved before the browser closes). View it with
+`playwright show-trace debug/trace-....zip` (from the Option A venv) or drag
+the zip onto https://trace.playwright.dev — the viewer runs entirely in your
+browser, the trace is not uploaded. You can hover each step and see the page
+exactly as it was, which usually identifies a bad selector or a race
+immediately.
 
-**Video** — `record_video_dir` must be set when the context is created, so
-temporarily add it in `launch_browser()`:
-
-```python
-context = browser.new_context(viewport={'width': 1280, 'height': 720},
-                              record_video_dir='/tmp/repo/debug/videos/')
-```
-
-Videos are finalized when the context closes, which `scenario()` guarantees
-even on failure. Traces are usually more useful — prefer them.
+**Video** — run with `VIDEO=1`; videos land in `debug/videos/`. They are
+finalized when the context closes, which `scenario()` guarantees even on
+failure. Traces are usually more useful — prefer them.
 
 ### Debugging at the GMT level
 
