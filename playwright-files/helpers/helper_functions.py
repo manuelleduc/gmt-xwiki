@@ -4,7 +4,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from time import time_ns, sleep
 
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import expect, sync_playwright
 
 DOMAIN = os.environ.get('HOST_URL', 'http://xwiki:8080')
 
@@ -45,6 +45,10 @@ def launch_browser(playwright, browser_name='firefox', headless=True):
         context_args['record_video_dir'] = str(REPO_DIR / 'debug' / 'videos')
     context = browser.new_context(**context_args)
     context.set_default_timeout(30_000)
+    # expect() assertions have their own 5s default, independent of the
+    # context timeout; 5s is too short for the first render of a page on a
+    # cold instance on slow machines (seen on the hosted cluster)
+    expect.set_options(timeout=30_000)
     page = context.new_page()
     return browser, context, page
 
