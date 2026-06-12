@@ -18,75 +18,92 @@ sampling energy/CPU/memory/network, and stores one "run" per scenario in its
 local PostgreSQL. The repo is mounted at `/tmp/repo` inside every container,
 which is how the container finds the scripts.
 
-Shared building blocks live in `playwright-files/helpers/helper_functions.py`:
+Shared building blocks live in `playwright-files/helpers/`:
+
+`helper_functions.py` — scenario infrastructure:
 
 - `log_note(msg)` — prints `<timestamp_ns> message`; GMT picks these lines up
   as timeline annotations (`read-notes-stdout: true` in the YAML). Call it
   before **every** user action so the measurement timeline is readable.
 - `user_sleep(delay=5)` — think time between actions, so the measurement
   reflects a human pace rather than a tight request loop.
-- `launch_browser(playwright, browser_name, headless=True)` — creates the
-  browser/context/page with a 1280×720 viewport and a 30s default timeout.
-- `login_xwiki(page)` — logs in as `Admin` / `admin1234` (baked into the seed)
-  and asserts the login worked.
-- `dismiss_tour(page)` — closes the Standard flavor's guided-tour overlay,
-  which appears on the home page for every fresh browser session and blocks
-  all clicks until dismissed.
+- `scenario(playwright, browser_name)` — context manager owning the browser
+  lifecycle: launches the browser, yields the `page`, logs any exception,
+  saves a full-page screenshot to `debug/` on failure (gitignored), and
+  always closes the browser.
+- `main(run)` — entry-point helper: parses the browser name from argv and
+  calls `run(playwright, browser_name)` inside `sync_playwright()`.
 - `DOMAIN` — the XWiki base URL, read from `HOST_URL` (defaults to
-  `http://xwiki:8080`). Always build URLs from this so the script works both
-  inside GMT and in ad-hoc debugging setups.
+  `http://xwiki:8080`), used by the page objects. Credentials
+  (`Admin` / `admin1234`, baked into the seed) live here too.
+
+`pages.py` — [page objects](https://martinfowler.com/bliki/PageObject.html)
+encapsulating the XWiki UI. All selectors and DOM details live here, never in
+scenario scripts; methods express user intentions and navigation methods
+return the page object for the screen the user lands on:
+
+- `LoginPage` — `login()` → `ViewPage`.
+- `ViewPage` — a rendered wiki document: `goto('Main/')`, `dismiss_tour()`
+  (the guided-tour overlay blocks all clicks on a fresh session's home page),
+  `follow_link(name)`, `search(term)` → `SearchResultsPage`,
+  `open_create_form()` → `CreateForm`, `delete()`,
+  `expect_title_contains(text)`.
+- `CreateForm` — `create(title)` → `Editor`.
+- `Editor` — `type_content(text)`, `save_and_view()` → `ViewPage` (feature
+  detection: realtime *Done* button on 17.x, classic `Save & View` on older).
+- `SearchResultsPage` — `expect_results()`, `result_count()`,
+  `open_first_result()` → `ViewPage`.
 
 ## Writing a new scenario
 
 ### 1. Write the Playwright script
 
 Copy `playwright-files/browse.py` (anonymous flow) or `edit.py` (logged-in
-flow) as a starting point. The structure to keep:
+flow) as a starting point. A scenario script is only the user journey:
 
 ```python
-import sys
-from playwright.sync_api import Playwright, sync_playwright, expect
-from helpers.helper_functions import log_note, launch_browser, user_sleep, dismiss_tour, DOMAIN
+from playwright.sync_api import Playwright
+
+from helpers.helper_functions import log_note, main, scenario, user_sleep
+from helpers.pages import ViewPage
+
 
 def run(playwright: Playwright, browser_name: str) -> None:
-    log_note(f"Launch browser {browser_name}")
-    browser, context, page = launch_browser(playwright, browser_name)
-    try:
+    with scenario(playwright, browser_name) as page:
+        wiki = ViewPage(page)
+
         log_note("Open home page")
-        page.goto(f"{DOMAIN}/bin/view/Main/")
-        expect(page.locator('body#body')).to_be_visible()
-        dismiss_tour(page)
+        wiki.goto("Main/")
+        wiki.dismiss_tour()
         user_sleep()
 
-        # ... one log_note() + action + user_sleep() block per user step ...
+        # ... one log_note() + page-object call + user_sleep() per user step ...
 
-        log_note("Close browser")
-        page.close()
-    except Exception as e:
-        if hasattr(e, 'message'):
-            log_note(f"Exception occurred: {e.message}")
-        raise e
-    context.close()
-    browser.close()
 
 if __name__ == "__main__":
-    browser_name = sys.argv[1].lower() if len(sys.argv) > 1 else "firefox"
-    with sync_playwright() as playwright:
-        run(playwright, browser_name)
+    main(run)
 ```
 
 Rules (see the nextcloud-gmt pattern this repo follows):
 
 - **`log_note()` around every user action** — these become the timeline
   markers you'll use to attribute energy to steps in the dashboard.
+  Annotation and pacing belong to the scenario; page objects never call
+  `log_note()`/`user_sleep()` themselves.
 - **`user_sleep()` between actions** (~5s) — realistic think time.
-- **Validate with `expect()`** after meaningful actions. A broken scenario
-  must *fail loudly*; a run that silently clicked into the void would store
-  bogus measurements that pollute version comparisons.
+- **No selectors in scenario scripts.** If a step needs a new interaction,
+  add a method to the matching page object in `helpers/pages.py` (or a new
+  page object class for a new screen). That keeps the interaction reusable
+  by the next scenario and gives selector fixes a single home when the skin
+  changes between XWiki versions.
+- **Validate with `expect()`** after meaningful actions — inside the page
+  object methods (e.g. `login()` asserts the navbar avatar). A broken
+  scenario must *fail loudly*; a run that silently clicked into the void
+  would store bogus measurements that pollute version comparisons.
 - **Work across all measured versions** (15.x → 17.x). Prefer feature
-  detection over version checks — e.g. `edit.py` checks whether the realtime
-  editor's *Done* button exists and falls back to the classic
-  `Save & View` input otherwise.
+  detection over version checks — e.g. `Editor.save_and_view()` checks
+  whether the realtime editor's *Done* button exists and falls back to the
+  classic `Save & View` input otherwise.
 - Clean up what you create (e.g. `edit.py` deletes its page) so reruns start
   from the same wiki state. Use randomized names for created content to
   survive a failed run that didn't clean up.
@@ -241,15 +258,15 @@ docker run --rm -it --network gmtxwiki-test -v "$PWD":/tmp/repo \
 
 ### Watch the browser live (headed mode)
 
-`launch_browser()` is headless by default. Temporarily pass `headless=False`
-at the call site in your script (revert before committing):
+`scenario()` is headless by default. Temporarily pass `headless=False` at the
+call site in your script (revert before committing):
 
 ```python
-browser, context, page = launch_browser(playwright, browser_name, headless=False)
+with scenario(playwright, browser_name, headless=False) as page:
 ```
 
 Then run via Option A or B. Combine with `slow_mo` if actions fly by too fast
-— add it temporarily in `launch_browser()`:
+— add it temporarily in `launch_browser()` (`helpers/helper_functions.py`):
 `playwright.firefox.launch(headless=headless, slow_mo=500)`.
 
 ### Breakpoints and step-by-step execution
@@ -286,26 +303,25 @@ This is the quickest way to try selectors against a hard-to-reach UI state.
 ### Screenshots, videos and traces
 
 The repo is mounted at `/tmp/repo`, so anything written under it lands in
-your working copy. Use a `debug/` subdirectory and don't commit it.
+your working copy. The gitignored `debug/` directory is the convention for
+these artifacts.
 
-**Screenshot on failure** — temporarily extend the `except` block:
-
-```python
-    except Exception as e:
-        page.screenshot(path="/tmp/repo/debug/failure.png", full_page=True)
-        ...
-```
+**Screenshot on failure** — built in: whenever a scenario raises, `scenario()`
+saves a full-page screenshot to `debug/failure-<script>-<timestamp>.png` and
+prints the path in the output. For an ad-hoc screenshot at a specific point,
+insert `page.screenshot(path="/tmp/repo/debug/now.png", full_page=True)`.
 
 **Trace (the most useful artifact)** — records every action with before/after
-DOM snapshots, screenshots, console and network logs:
+DOM snapshots, screenshots, console and network logs. Temporarily wrap the
+scenario body:
 
 ```python
-browser, context, page = launch_browser(playwright, browser_name)
-context.tracing.start(screenshots=True, snapshots=True, sources=True)
-try:
-    ...
-finally:
-    context.tracing.stop(path="/tmp/repo/debug/trace.zip")
+with scenario(playwright, browser_name) as page:
+    page.context.tracing.start(screenshots=True, snapshots=True, sources=True)
+    try:
+        ...
+    finally:
+        page.context.tracing.stop(path="/tmp/repo/debug/trace.zip")
 ```
 
 View it with `playwright show-trace debug/trace.zip` (from the Option A venv)
@@ -322,9 +338,8 @@ context = browser.new_context(viewport={'width': 1280, 'height': 720},
                               record_video_dir='/tmp/repo/debug/videos/')
 ```
 
-Videos are finalized when `context.close()` runs, so they only appear for
-runs that reach the cleanup code (traces and screenshots don't have this
-constraint — prefer traces).
+Videos are finalized when the context closes, which `scenario()` guarantees
+even on failure. Traces are usually more useful — prefer them.
 
 ### Debugging at the GMT level
 
@@ -360,7 +375,7 @@ python3 ~/green-metrics-tool/runner.py \
 ### Common pitfalls
 
 - **The guided tour overlay** steals every click on the home page of a fresh
-  session. Call `dismiss_tour(page)` after the first navigation there.
+  session. Call `ViewPage.dismiss_tour()` after the first navigation there.
 - **XWiki is slow to start** (~1–2 min, more on first request to a page).
   When testing manually, wait for the `curl` loop before blaming your script.
 - **Hidden-but-enabled buttons**: XWiki UIs (and the Distribution Wizard in

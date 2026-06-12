@@ -3,57 +3,41 @@
 Opens the home page, navigates to a few standard pages shipped with the
 XWiki Standard flavor, like a visitor discovering the wiki.
 """
-import sys
+from playwright.sync_api import Playwright
 
-from playwright.sync_api import Playwright, sync_playwright, expect
-
-from helpers.helper_functions import log_note, launch_browser, user_sleep, dismiss_tour, DOMAIN
+from helpers.helper_functions import log_note, main, scenario, user_sleep
+from helpers.pages import ViewPage
 
 
 def run(playwright: Playwright, browser_name: str) -> None:
-    log_note(f"Launch browser {browser_name}")
-    browser, context, page = launch_browser(playwright, browser_name)
+    with scenario(playwright, browser_name) as page:
+        wiki = ViewPage(page)
 
-    try:
         log_note("Open home page")
-        page.goto(f"{DOMAIN}/bin/view/Main/")
-        expect(page.locator('body#body')).to_be_visible()
-        dismiss_tour(page)
+        wiki.goto("Main/")
+        wiki.dismiss_tour()
         user_sleep()
 
         log_note("Open the How-To page")
-        page.goto(f"{DOMAIN}/bin/view/Help/")
+        wiki.goto("Help/")
         user_sleep()
 
         log_note("Open the Sandbox")
-        page.goto(f"{DOMAIN}/bin/view/Sandbox/")
+        wiki.goto("Sandbox/")
         user_sleep()
 
         log_note("Navigate to a Sandbox sub-page via link")
-        page.get_by_role("link", name="Sandbox Test Page 1").first.click()
-        page.wait_for_load_state()
+        wiki.follow_link("Sandbox Test Page 1")
         user_sleep()
 
         log_note("Open the page index")
-        page.goto(f"{DOMAIN}/bin/view/Main/AllDocs")
+        wiki.goto("Main/AllDocs")
         user_sleep()
 
         log_note("Back to home page")
-        page.goto(f"{DOMAIN}/bin/view/Main/")
+        wiki.goto("Main/")
         user_sleep()
-
-        log_note("Close browser")
-        page.close()
-    except Exception as e:
-        if hasattr(e, 'message'):
-            log_note(f"Exception occurred: {e.message}")
-        raise e
-
-    context.close()
-    browser.close()
 
 
 if __name__ == "__main__":
-    browser_name = sys.argv[1].lower() if len(sys.argv) > 1 else "firefox"
-    with sync_playwright() as playwright:
-        run(playwright, browser_name)
+    main(run)

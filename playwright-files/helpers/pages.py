@@ -1,0 +1,152 @@
+"""Page objects for the XWiki UI.
+
+Following https://martinfowler.com/bliki/PageObject.html: each class wraps one
+screen of the XWiki skin and exposes user intentions as methods. Selectors and
+DOM details live here — never in scenario scripts — so scenarios read as user
+journeys and skin changes across XWiki versions are fixed in one place.
+Navigation methods return the page object for the screen the user lands on.
+
+Page objects do not call log_note()/user_sleep(): timeline annotations and
+think time are scenario-level concerns and stay in the scenario scripts.
+"""
+from playwright.sync_api import expect
+
+from helpers.helper_functions import DOMAIN, USERNAME, PASSWORD, log_note
+
+
+class BasePage:
+    def __init__(self, page):
+        self.page = page
+
+
+class LoginPage(BasePage):
+    def login(self, username=USERNAME, password=PASSWORD) -> "ViewPage":
+        self.page.goto(f"{DOMAIN}/bin/login/XWiki/XWikiLogin")
+        self.page.locator('#j_username').fill(username)
+        self.page.locator('#j_password').fill(password)
+        self.page.locator('#loginForm input[type=submit]').click()
+        # After login XWiki redirects; the navbar avatar proves we are logged in
+        # (#tmUser exists too but sits inside the closed drawer, hence invisible)
+        expect(self.page.locator('.navbar-avatar')).to_be_visible()
+        return ViewPage(self.page)
+
+
+class ViewPage(BasePage):
+    """A rendered wiki document, with the standard skin chrome around it."""
+
+    def goto(self, reference: str) -> "ViewPage":
+        """Open a document by view path, e.g. 'Main/' or 'Main/AllDocs'."""
+        self.page.goto(f"{DOMAIN}/bin/view/{reference}")
+        expect(self.page.locator('body#body')).to_be_visible()
+        return self
+
+    def dismiss_tour(self) -> None:
+        """Close the standard flavor's guided tour overlay if it is showing.
+
+        The tour appears on the home page for every fresh browser session and
+        its backdrop intercepts all pointer events.
+        """
+        from playwright.sync_api import TimeoutError as PWTimeout
+        backdrop = self.page.locator('.tour-backdrop')
+        try:
+            # the tour pops in asynchronously shortly after page load; its
+            # backdrop has no box size, so wait for DOM attachment rather
+            # than visibility
+            backdrop.first.wait_for(state='attached', timeout=5_000)
+        except PWTimeout:
+            return
+        log_note('Dismissing guided tour')
+        # the popover only offers "Next" until the final step shows an end
+        # button; click through like a curious first-time user would
+        for _ in range(15):
+            if not backdrop.count():
+                return
+            end = self.page.locator('#bootstrap_tour_end, a[data-role=end], button[data-role=end]')
+            if end.count() and end.first.is_visible():
+                end.first.click()
+                break
+            nxt = self.page.locator('#bootstrap_tour_next')
+            if nxt.count() and nxt.first.is_visible():
+                nxt.first.click()
+                self.page.wait_for_timeout(500)
+                continue
+            self.page.wait_for_timeout(500)
+        backdrop.first.wait_for(state='detached', timeout=10_000)
+
+    def follow_link(self, name: str) -> "ViewPage":
+        self.page.get_by_role("link", name=name).first.click()
+        self.page.wait_for_load_state()
+        return self
+
+    def expect_title_contains(self, text: str) -> None:
+        # the in-place editor leaves a second #document-title in the DOM
+        expect(self.page.locator('#document-title').first).to_contain_text(text)
+
+    def search(self, term: str) -> "SearchResultsPage":
+        self.page.locator('#globalsearch button[title="Search"]').click()
+        search_input = self.page.locator('#headerglobalsearchinput')
+        expect(search_input).to_be_enabled()
+        search_input.type(term, delay=50)
+        search_input.press('Enter')
+        self.page.wait_for_load_state()
+        return SearchResultsPage(self.page)
+
+    def open_create_form(self) -> "CreateForm":
+        self.page.locator('a.btn[title="Create"]').click()
+        self.page.wait_for_load_state()
+        return CreateForm(self.page)
+
+    def delete(self) -> "ViewPage":
+        self.page.locator('button[title="More Actions"]').click()
+        self.page.locator('#tmActionDelete').click()
+        self.page.wait_for_load_state()
+        self.page.locator('button.confirm.btn-danger, button.btn-danger.confirm').first.click()
+        self.page.wait_for_load_state()
+        return self
+
+
+class CreateForm(BasePage):
+    """The page creation form opened from the Create button."""
+
+    def create(self, title: str) -> "Editor":
+        self.page.locator('#targetTitle').fill(title)
+        self.page.locator('form#create [type=submit]').first.click()
+        self.page.wait_for_load_state()
+        return Editor(self.page)
+
+
+class Editor(BasePage):
+    """The (default) WYSIWYG editor, realtime on 17.x, classic on older versions."""
+
+    def type_content(self, text: str) -> None:
+        editor_body = self.page.frame_locator('iframe.cke_wysiwyg_frame').locator('body')
+        editor_body.click()
+        self.page.keyboard.type(text, delay=20)
+
+    def save_and_view(self) -> "ViewPage":
+        # 17.x uses the realtime editor's Done button; older versions (<=16.10)
+        # show the classic Save & View input instead
+        done_button = self.page.locator('button.realtime-action-done')
+        if done_button.count() and done_button.first.is_visible():
+            done_button.first.click()
+        else:
+            self.page.locator('input[name=action_save]').click()
+        self.page.wait_for_load_state()
+        return ViewPage(self.page)
+
+
+class SearchResultsPage(BasePage):
+    def __init__(self, page):
+        super().__init__(page)
+        self.results = page.locator('.search-result')
+
+    def expect_results(self) -> None:
+        expect(self.results.first).to_be_visible(timeout=30_000)
+
+    def result_count(self) -> int:
+        return self.results.count()
+
+    def open_first_result(self) -> "ViewPage":
+        self.results.first.locator('a').first.click()
+        self.page.wait_for_load_state()
+        return ViewPage(self.page)

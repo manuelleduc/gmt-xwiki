@@ -1,4 +1,7 @@
 # Generated seed artifacts (DB dump + XWiki permanent directory), regenerate with provision/
 seed/
+# Failure screenshots and other scenario debugging artifacts
+debug/
+__pycache__/
 .idea/
 .claude/

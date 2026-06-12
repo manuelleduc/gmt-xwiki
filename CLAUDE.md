@@ -73,7 +73,8 @@ docker rm -f test-db test-xwiki   # cleanup
 
 ## Conventions
 
-- Scenario scripts follow the nextcloud-gmt pattern (https://github.com/green-coding-solutions/nextcloud-gmt): one `usage_scenario_<name>.yml` + one `playwright-files/<name>.py`, `log_note()` around every user action, ~5s `user_sleep()` think time between actions, validation via `expect()` so broken runs fail loudly instead of storing bogus measurements.
+- Scenario scripts follow the nextcloud-gmt pattern (https://github.com/green-coding-solutions/nextcloud-gmt): one `usage_scenario_<name>.yml` + one `playwright-files/<name>.py`, `log_note()` around every user action, ~5s `user_sleep()` think time between actions, validation via `expect()` so broken runs fail loudly instead of storing bogus measurements. See `docs/writing-scenarios.md` for the full authoring/debugging guide.
+- Scenario scripts contain no selectors: all UI interaction lives in page objects (`playwright-files/helpers/pages.py`, per https://martinfowler.com/bliki/PageObject.html); scripts are user journeys built from `scenario()`/`main()` (`helpers/helper_functions.py`) plus page-object calls. Page objects never call `log_note()`/`user_sleep()` — annotation and pacing stay in the scripts.
 - Adding a version = `./provision/provision_version.sh <version> [--push]` then `./run_measurements.sh -v <version>`; no file edits needed. The default version lives only in `run_measurements.sh` and `provision/compose-blank.yml`. The GHCR namespace (`ghcr.io/manuelleduc`) lives in `compose.yml`, `run_measurements.sh` and `provision_version.sh` — keep them in sync.
-- Scenario scripts must work across measured versions (17.x realtime editor vs older Save & View, etc.) — prefer feature detection over version checks, like `edit.py` does for the save button.
+- Scenario scripts must work across measured versions (17.x realtime editor vs older Save & View, etc.) — prefer feature detection over version checks, like `Editor.save_and_view()` does for the save button.
 - Larger/deferred scenarios are tracked in `BACKLOG.md`.
