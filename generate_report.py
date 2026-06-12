@@ -169,11 +169,7 @@ def build_html(data, api_url, uri):
 <p class="meta">Repository: {uri} · Source: {api_url} · Generated: {generated}<br>
 Latest successful run per version/scenario, metrics from the measured <code>[RUNTIME]</code> phase.</p>
 
-<h2>Metric evolution by version</h2>
-<div class="grid" id="metric-charts"></div>
-
-<h2>Energy attribution per container (machine energy share, J)</h2>
-<div class="grid" id="attribution-charts"></div>
+<div id="scenario-sections"></div>
 
 <h2>Runs included</h2>
 <div id="table"></div>
@@ -185,31 +181,34 @@ compare energy instead. Memory/CPU/network are means or totals over the runtime 
 <script>
 const D = {payload};
 const charts = [];
-function bar(el, title, unit, seriesMap) {{
-  const c = echarts.init(el);
-  c.setOption({{
-    title: {{ text: title + (unit ? ` (${{unit}})` : ''), textStyle: {{ fontSize: 13 }} }},
-    tooltip: {{ trigger: 'axis' }}, legend: {{ top: 22, textStyle: {{ fontSize: 11 }} }},
-    grid: {{ top: 60, left: 55, right: 10, bottom: 25 }},
-    xAxis: {{ type: 'category', data: D.versions }},
-    yAxis: {{ type: 'value' }},
-    series: Object.entries(seriesMap).map(([name, vals]) => ({{ name, type: 'bar', data: vals }})),
-    animation: false,
-  }});
-  charts.push(c);
-}}
-const mc = document.getElementById('metric-charts');
-for (const [label, seriesMap] of Object.entries(D.metrics)) {{
-  const el = document.createElement('div'); el.className = 'chart'; mc.appendChild(el);
-  bar(el, label, D.units[label], seriesMap);
-}}
-const ac = document.getElementById('attribution-charts');
-for (const s of D.scenarios) {{
-  const el = document.createElement('div'); el.className = 'chart'; ac.appendChild(el);
+const sections = document.getElementById('scenario-sections');
+const palette = ['#5470c6', '#91cc75', '#fac858', '#ee6666'];
+D.scenarios.forEach((s, idx) => {{
+  const h = document.createElement('h2');
+  h.textContent = `Scenario: ${{s}} — evolution across versions`;
+  sections.appendChild(h);
+  const grid = document.createElement('div'); grid.className = 'grid';
+  sections.appendChild(grid);
+  for (const [label, seriesMap] of Object.entries(D.metrics)) {{
+    const el = document.createElement('div'); el.className = 'chart'; grid.appendChild(el);
+    const c = echarts.init(el);
+    c.setOption({{
+      title: {{ text: label + (D.units[label] ? ` (${{D.units[label]}})` : ''), textStyle: {{ fontSize: 13 }} }},
+      tooltip: {{ trigger: 'axis' }},
+      grid: {{ top: 45, left: 55, right: 10, bottom: 25 }},
+      xAxis: {{ type: 'category', data: D.versions }},
+      yAxis: {{ type: 'value' }},
+      series: [{{ name: s, type: 'bar', data: seriesMap[s], itemStyle: {{ color: palette[idx % palette.length] }} }}],
+      animation: false,
+    }});
+    charts.push(c);
+  }}
+  // per-container energy attribution for this scenario
+  const el = document.createElement('div'); el.className = 'chart'; grid.appendChild(el);
   const containers = [...new Set(Object.values(D.attribution[s]).flatMap(o => Object.keys(o)))];
   const c = echarts.init(el);
   c.setOption({{
-    title: {{ text: s, textStyle: {{ fontSize: 13 }} }},
+    title: {{ text: 'Energy attribution per container (J)', textStyle: {{ fontSize: 13 }} }},
     tooltip: {{ trigger: 'axis' }}, legend: {{ top: 22, textStyle: {{ fontSize: 11 }} }},
     grid: {{ top: 60, left: 55, right: 10, bottom: 25 }},
     xAxis: {{ type: 'category', data: D.versions }},
@@ -219,7 +218,7 @@ for (const s of D.scenarios) {{
     animation: false,
   }});
   charts.push(c);
-}}
+}});
 const cols = ['version', 'scenario', ...Object.keys(D.units), 'machine', 'commit', 'created_at'];
 const head = '<tr>' + cols.map(c => `<th>${{c}}</th>`).join('') + '<th>run</th></tr>';
 const rows = D.table.map(r => '<tr>' + cols.map(c => `<td>${{r[c] ?? ''}}</td>`).join('')
