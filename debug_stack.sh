@@ -41,7 +41,7 @@ case "${1:-}" in
     args=()
     # interactive when run from a terminal, so breakpoint()/pdb in a script works
     [ -t 0 ] && [ -t 1 ] && args+=(-it)
-    for var in HEADFUL SLOW_MO TRACE VIDEO; do
+    for var in HEADFUL SLOW_MO TRACE VIDEO THINK_TIME; do
       [ -n "${!var:-}" ] && args+=(-e "$var=${!var}")
     done
     if [ "${HEADFUL:-}" = "1" ]; then

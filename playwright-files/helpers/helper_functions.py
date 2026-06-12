@@ -21,7 +21,10 @@ def log_note(message: str) -> None:
 
 
 def user_sleep(delay=5):
-    log_note(f"Sleeping for {delay}s")
+    # THINK_TIME=<s> overrides think time globally (e.g. THINK_TIME=0 while
+    # debugging); measured runs must keep the default human pace
+    delay = float(os.environ.get('THINK_TIME', delay))
+    log_note(f"Sleeping for {delay:g}s")
     sleep(delay)
 
 

@@ -248,6 +248,7 @@ nothing to revert before committing:
 | `SLOW_MO=500` | slow every Playwright action down by N ms |
 | `TRACE=1` | record a Playwright trace to `debug/trace-<script>-<ts>.zip` |
 | `VIDEO=1` | record a video of the run to `debug/videos/` |
+| `THINK_TIME=0` | override `user_sleep()` think time (seconds) — cuts ~30s per iteration |
 
 They combine freely, and `debug_stack.sh run` forwards them into the
 container — e.g. watch a run at human speed:
