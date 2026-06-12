@@ -49,18 +49,12 @@ to GHCR (`provision_version.sh <version> --push`) and set to public visibility o
 ### Test a scenario script without GMT (fast iteration)
 ```bash
 # images exist after run_measurements.sh built them once for that version
-docker network create gmtxwiki-test 2>/dev/null
-docker run -d --name test-db --network gmtxwiki-test --network-alias db \
-  -e POSTGRES_USER=xwiki -e POSTGRES_PASSWORD=xwiki -e POSTGRES_DB=xwiki \
-  ghcr.io/manuelleduc/gmt-xwiki-db-seeded:17.10.9
-docker run -d --name test-xwiki --network gmtxwiki-test --network-alias xwiki \
-  -e DB_USER=xwiki -e DB_PASSWORD=xwiki -e DB_DATABASE=xwiki -e DB_HOST=db \
-  ghcr.io/manuelleduc/gmt-xwiki-seeded:17.10.9
-docker run --rm --network gmtxwiki-test -v "$PWD":/tmp/repo \
-  -e HOST_URL=http://xwiki:8080 -w /tmp/repo/playwright-files \
-  greencoding/gcb_playwright:v21 python3 browse.py firefox
-docker rm -f test-db test-xwiki   # cleanup
+./debug_stack.sh up 17.10.9      # seeded db+xwiki, waits until ready, publishes localhost:8080
+./debug_stack.sh run browse      # run a scenario script in the gcb_playwright container
+./debug_stack.sh down            # cleanup
 ```
+`run` forwards the debug env vars (`HEADFUL`, `SLOW_MO`, `TRACE`, `VIDEO` — see
+`docs/writing-scenarios.md`), e.g. `TRACE=1 ./debug_stack.sh run edit`.
 
 ## Gotchas
 

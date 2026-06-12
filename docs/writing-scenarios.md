@@ -180,48 +180,32 @@ against the same seeded images, then do one GMT run at the end to validate.
 
 ### Start the XWiki stack for a given version
 
+`debug_stack.sh` wraps the whole ad-hoc setup (db + xwiki containers on a
+`gmtxwiki-test` network, readiness wait, scenario runs, teardown):
+
+```bash
+./debug_stack.sh up 16.10.17      # start that version, wait until ready (~1-2 min)
+./debug_stack.sh run <name>       # run playwright-files/<name>.py against it
+./debug_stack.sh down             # remove containers and network
+```
+
 The seeded images for the version must exist locally — they do after
 `run_measurements.sh` or `provision_version.sh` ran once for that version,
 otherwise `docker pull ghcr.io/manuelleduc/gmt-xwiki{,-db}-seeded:<version>`.
+(The script is a thin wrapper over `docker run`; read it if you need a
+variant, e.g. a second stack on another port.)
 
-```bash
-VERSION=17.10.9
-docker network create gmtxwiki-test 2>/dev/null
-docker run -d --name test-db --network gmtxwiki-test --network-alias db \
-  -e POSTGRES_USER=xwiki -e POSTGRES_PASSWORD=xwiki -e POSTGRES_DB=xwiki \
-  ghcr.io/manuelleduc/gmt-xwiki-db-seeded:$VERSION
-docker run -d --name test-xwiki --network gmtxwiki-test --network-alias xwiki \
-  -p 8080:8080 \
-  -e DB_USER=xwiki -e DB_PASSWORD=xwiki -e DB_DATABASE=xwiki -e DB_HOST=db \
-  ghcr.io/manuelleduc/gmt-xwiki-seeded:$VERSION
+`up` publishes the wiki on http://localhost:8080: open it in your own browser
+to explore the UI, inspect the DOM and try selectors in the devtools console
+before writing them into a page object.
 
-# XWiki needs ~1–2 min; wait until it answers:
-until curl -fs http://localhost:8080/bin/view/Main/ -o /dev/null; do sleep 2; done; echo ready
-```
+### Iterate with `debug_stack.sh run` (fastest loop)
 
-`-p 8080:8080` also exposes the wiki on the host: you can open
-http://localhost:8080 in your own browser to explore the UI, inspect the DOM
-and try selectors in the devtools console before writing them into the script.
-
-Cleanup when done:
-
-```bash
-docker rm -f test-db test-xwiki && docker network rm gmtxwiki-test
-```
-
-### Run the script headless in the container (fastest loop)
-
-This is exactly how GMT runs it, minus the measurement:
-
-```bash
-docker run --rm --network gmtxwiki-test -v "$PWD":/tmp/repo \
-  -e HOST_URL=http://xwiki:8080 -w /tmp/repo/playwright-files \
-  greencoding/gcb_playwright:v21 python3 <name>.py firefox
-```
-
-Edit the script on the host, rerun the command — the repo is bind-mounted, no
-rebuild needed. The XWiki containers keep running between iterations, so each
-attempt costs seconds, not minutes.
+`./debug_stack.sh run <name>` executes the script in the same
+`gcb_playwright` container GMT uses, minus the measurement. Edit the script
+on the host, rerun — the repo is bind-mounted, no rebuild needed. The XWiki
+containers keep running between iterations, so each attempt costs seconds,
+not minutes.
 
 ### Two ways to get an interactive/visible browser
 
@@ -248,12 +232,8 @@ in-container run to confirm.
 **Option B — X11 passthrough into the container:**
 
 ```bash
-xhost +local:docker   # allow containers to use your X server
-docker run --rm -it --network gmtxwiki-test -v "$PWD":/tmp/repo \
-  -e HOST_URL=http://xwiki:8080 -e DISPLAY=$DISPLAY \
-  -v /tmp/.X11-unix:/tmp/.X11-unix \
-  -w /tmp/repo/playwright-files \
-  greencoding/gcb_playwright:v21 python3 <name>.py firefox
+xhost +local:docker                  # allow containers to use your X server, once
+HEADFUL=1 ./debug_stack.sh run <name>   # wires DISPLAY + /tmp/.X11-unix automatically
 ```
 
 ### Debug knobs (environment variables)
@@ -269,13 +249,15 @@ nothing to revert before committing:
 | `TRACE=1` | record a Playwright trace to `debug/trace-<script>-<ts>.zip` |
 | `VIDEO=1` | record a video of the run to `debug/videos/` |
 
-They combine freely, e.g. watch a run at human speed:
+They combine freely, and `debug_stack.sh run` forwards them into the
+container — e.g. watch a run at human speed:
 
 ```bash
-HEADFUL=1 SLOW_MO=500 HOST_URL=http://localhost:8080 python3 <name>.py firefox
+HEADFUL=1 SLOW_MO=500 ./debug_stack.sh run <name>
 ```
 
-In the container, pass them with `-e`: `docker run -e TRACE=1 ...`.
+When running on the host (Option A), set them the same way in front of
+`python3 <name>.py firefox`.
 
 ### Breakpoints and step-by-step execution
 
@@ -295,12 +277,11 @@ timeout, no code change needed.)
 the Inspector opens there and you can continue or step. Also needs a display.
 
 **Plain Python debugger (works headless, no display needed).** Insert
-`breakpoint()` in the script, then run interactively in the container:
+`breakpoint()` in the script, then run it from a terminal (`debug_stack.sh
+run` allocates a TTY when it has one, so pdb is interactive):
 
 ```bash
-docker run --rm -it --network gmtxwiki-test -v "$PWD":/tmp/repo \
-  -e HOST_URL=http://xwiki:8080 -w /tmp/repo/playwright-files \
-  greencoding/gcb_playwright:v21 python3 <name>.py firefox
+./debug_stack.sh run <name>
 ```
 
 At the `(Pdb)` prompt you can run arbitrary Playwright calls against the live
@@ -323,9 +304,7 @@ insert `page.screenshot(path="/tmp/repo/debug/now.png", full_page=True)`.
 DOM snapshots, screenshots, console and network logs. Run with `TRACE=1`:
 
 ```bash
-docker run --rm --network gmtxwiki-test -v "$PWD":/tmp/repo \
-  -e HOST_URL=http://xwiki:8080 -e TRACE=1 -w /tmp/repo/playwright-files \
-  greencoding/gcb_playwright:v21 python3 <name>.py firefox
+TRACE=1 ./debug_stack.sh run <name>
 ```
 
 The trace lands in `debug/trace-<script>-<timestamp>.zip` (works for failed
