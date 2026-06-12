@@ -110,7 +110,9 @@ Rules (see the nextcloud-gmt pattern this repo follows):
 
 ### 2. Write the usage scenario YAML
 
-Copy an existing one — `usage_scenario_browse.yml` is the minimal template:
+Copy an existing one — `usage_scenario_browse.yml` is the minimal template.
+The whole container stack (db, xwiki, gcb-playwright) comes from the
+`!include`d `compose.yml`; a scenario file is just metadata plus the flow:
 
 ```yaml
 ---
@@ -120,15 +122,6 @@ description: One sentence describing the simulated user behaviour.
 
 compose-file: !include compose.yml
 
-services:
-  gcb-playwright:
-    image: greencoding/gcb_playwright:v21
-    depends_on:
-      - xwiki          # plain depends_on, NOT service_healthy — see below
-    environment:
-      HOST_URL: http://xwiki:8080
-    command: ["tail", "-f", "/dev/null"]
-
 flow:
   - name: Wait for XWiki
     container: gcb-playwright
@@ -136,7 +129,7 @@ flow:
     commands:
       - type: console
         shell: bash
-        command: timeout 600 bash -c 'until curl -fs http://xwiki:8080/bin/view/Main/ -o /dev/null; do sleep 2; done'
+        command: bash /tmp/repo/playwright-files/wait_for_xwiki.sh
 
   - name: <Measured step name>
     container: gcb-playwright
@@ -152,10 +145,11 @@ Things you must not change casually:
 - **Keep `__GMT_VAR_VERSION__` in `name:`** — GMT substitutes it and refuses
   to run with unsubstituted variables; it is also how runs are grouped per
   version in the dashboard.
-- **Keep the plain `depends_on: [xwiki]` + hidden "Wait for XWiki" step.**
-  XWiki takes minutes to boot and the hosted cluster caps GMT's healthcheck
-  wait at 60s, so readiness is handled by the hidden polling step (hidden
-  steps are excluded from the measured phases).
+- **Keep the hidden "Wait for XWiki" step first.** XWiki takes minutes to
+  boot while the hosted cluster caps GMT's healthcheck wait at 60s (which is
+  why `gcb-playwright` in `compose.yml` uses a plain `depends_on: [xwiki]`,
+  not `service_healthy`); readiness is handled by this polling step
+  (`hidden: true` excludes it from the measured phases).
 - Only use compose keys GMT supports (`lib/schema_checker.py` in the GMT
   repo): no `dns`, no named volumes, bind mounts must stay inside this repo.
 

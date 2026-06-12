@@ -5,18 +5,6 @@ description: An anonymous visitor opens the home page and navigates standard wik
 
 compose-file: !include compose.yml
 
-services:
-  gcb-playwright:
-    image: greencoding/gcb_playwright:v21
-    depends_on:
-      # plain depends_on (running, not healthy): the hosted cluster caps the
-      # healthcheck wait at 60s (user capability, not settable per run) and
-      # XWiki needs several minutes — the hidden flow step below waits instead
-      - xwiki
-    environment:
-      HOST_URL: http://xwiki:8080
-    command: ["tail", "-f", "/dev/null"]
-
 flow:
   - name: Wait for XWiki
     container: gcb-playwright
@@ -24,7 +12,7 @@ flow:
     commands:
       - type: console
         shell: bash
-        command: timeout 600 bash -c 'until curl -fs http://xwiki:8080/bin/view/Main/ -o /dev/null; do sleep 2; done'
+        command: bash /tmp/repo/playwright-files/wait_for_xwiki.sh
 
   - name: Browse wiki pages
     container: gcb-playwright

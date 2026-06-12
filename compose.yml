@@ -22,6 +22,18 @@ services:
       start_period: 120s
       start_interval: 2s
 
+  gcb-playwright:
+    image: greencoding/gcb_playwright:v21
+    depends_on:
+      # plain depends_on (running, not healthy): the hosted cluster caps the
+      # healthcheck wait at 60s (user capability, not settable per run) and
+      # XWiki needs several minutes — every scenario starts with a hidden
+      # "Wait for XWiki" flow step (wait_for_xwiki.sh) instead
+      - xwiki
+    environment:
+      HOST_URL: http://xwiki:8080
+    command: ["tail", "-f", "/dev/null"]
+
   xwiki:
     image: ghcr.io/manuelleduc/gmt-xwiki-seeded:__GMT_VAR_VERSION__
     depends_on:
