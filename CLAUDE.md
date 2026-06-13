@@ -14,6 +14,8 @@ GMT orchestrates the containers described in each `usage_scenario_*.yml` (a comp
 
 **Versioning**: everything is parameterized by XWiki version. `compose.yml` and the scenario `name:` fields contain `__GMT_VAR_VERSION__`, substituted by GMT through `--variable` (passed by `run_measurements.sh`, or the "Variables" field of the hosted request form); the Dockerfiles take an `XWIKI_VERSION` build arg; `provision/compose-blank.yml` interpolates `$XWIKI_VERSION` from the environment. Because of the GMT variable, `compose.yml` is not usable with plain `docker compose` — use the built images directly for manual testing.
 
+**Solr index sync**: the seed must contain a Solr index that matches the database, or every boot re-indexes the gap in the background — skewing energy numbers and making the search scenario find nothing on slow machines (the boot log line `N documents added, M deleted ... synchronization of the Solr index` must be 0/0). `provision_version.sh` enforces this: it bakes a `GMT.SolrQueueSize` probe page (renders `$services.solr.queueSize`) into the seed, waits for the indexer queue to drain, then restart-verifies the 0/0 sync report before exporting. `wait_for_xwiki.sh` polls the same probe page at measurement boot so scenarios never start while the indexer is busy. A stale seed is fixed without re-provisioning via `provision_version.sh <version> --repair --push`.
+
 Credentials baked into the seed: user `Admin` / `admin1234` (see `playwright-files/helpers/helper_functions.py`).
 
 ## Workflows
