@@ -69,8 +69,11 @@ def select_runs(api_url, uri, scenarios):
         if scenarios and scenario not in scenarios:
             continue
         key = (version, scenario)
-        # rows come newest-first; keep the most recent successful run
-        if key not in selected:
+        # keep the most recent successful run for each (version, scenario);
+        # compare created_at explicitly rather than trusting the API's row
+        # order (ISO-8601 timestamps sort lexicographically)
+        prev = selected.get(key)
+        if prev is None or created_at > prev['created_at']:
             selected[key] = {'id': run_id, 'created_at': created_at,
                              'machine': machine, 'commit': commit}
     return selected
