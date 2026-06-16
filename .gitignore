@@ -4,6 +4,8 @@ seed/
 debug/
 # Generated measurement reports (generate_report.py)
 report/
+# Cached per-run phase stats (generate_report.py --cache-dir)
+.report_cache/
 __pycache__/
 .idea/
 .claude/

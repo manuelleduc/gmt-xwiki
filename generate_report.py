@@ -97,12 +97,27 @@ def extract_value(phase_data, metric, detail):
     return total if names else None
 
 
-def collect(api_url, runs):
+def fetch_phase_stats(api_url, run_id, cache_dir):
+    """Phase stats of a completed run never change, so they're cached to disk
+    forever once fetched; only newly-selected run ids cost an API call."""
+    cache_file = cache_dir / f"{run_id}.json" if cache_dir else None
+    if cache_file and cache_file.exists():
+        return json.loads(cache_file.read_text()), True
+    data = api_get(api_url, f"/v1/phase_stats/single/{run_id}")
+    if cache_dir:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        cache_file.write_text(json.dumps(data))
+    return data, False
+
+
+def collect(api_url, runs, cache_dir=None):
     """-> {(version, scenario): {'metrics': {label: value}, 'attribution': {container: J}, run meta}}"""
     out = {}
     for (version, scenario), meta in sorted(runs.items()):
-        print(f"  fetching phase stats: xwiki-{version} {scenario} ({meta['id']})")
-        stats = api_get(api_url, f"/v1/phase_stats/single/{meta['id']}")['data']['data']
+        resp, cached = fetch_phase_stats(api_url, meta['id'], cache_dir)
+        print(f"  fetching phase stats: xwiki-{version} {scenario} ({meta['id']})"
+              + (" [cached]" if cached else ""))
+        stats = resp['data']['data']
         runtime = stats.get('[RUNTIME]', {}).get('data', {})
         baseline = stats.get('[BASELINE]', {}).get('data', {})
         raw = lambda metric, detail='first', src=runtime: extract_value(src, metric, detail)
@@ -362,12 +377,17 @@ def main():
     ap.add_argument('--scenarios', default=None, help='comma-separated subset, e.g. idle,browse')
     ap.add_argument('-o', '--out', default='report', help='output directory (default: report/)')
     ap.add_argument('--pdf', action='store_true', help='also render report.pdf')
+    ap.add_argument('--cache-dir', default='.report_cache',
+                    help='on-disk cache for per-run phase stats, which never change once a run '
+                         'completes (default: .report_cache/)')
+    ap.add_argument('--no-cache', action='store_true', help='disable the phase-stats cache, always refetch')
     args = ap.parse_args()
 
     uri = args.uri or default_uri()
     if not uri:
         ap.error('no origin remote found; pass --uri')
     scenarios = set(args.scenarios.split(',')) if args.scenarios else None
+    cache_dir = None if args.no_cache else Path(args.cache_dir)
 
     print(f"Listing runs for {uri} on {args.api_url}")
     runs = select_runs(args.api_url, uri, scenarios)
@@ -376,7 +396,7 @@ def main():
     print(f"Selected {len(runs)} runs "
           f"({len({v for v, _ in runs})} versions x {len({s for _, s in runs})} scenarios)")
 
-    data = collect(args.api_url, runs)
+    data = collect(args.api_url, runs, cache_dir)
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
     all_scenarios = sorted({s for _, s in data})
