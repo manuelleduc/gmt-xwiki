@@ -1,0 +1,25 @@
+---
+name: XWiki __GMT_VAR_VERSION__ - Render 1000 HTML Macros - PostgreSQL
+author: Manuel Leduc <manuel.leduc@gmail.com>
+description: >
+  100x bin/get of a page with 1000 {{html}} macros (no browser) —
+  measures sanitizer-heavy rendering (~18x heavier than {{id}} macros).
+
+compose-file: !include compose.yml
+
+flow:
+  - name: Wait for XWiki
+    container: gcb-playwright
+    hidden: true
+    commands:
+      - type: console
+        shell: bash
+        command: bash /tmp/repo/playwright-files/wait_for_xwiki.sh
+
+  - name: Render 1000 {{html}} macros without UI
+    container: gcb-playwright
+    commands:
+      - type: console
+        command: python3 /tmp/repo/playwright-files/render_html.py
+        note: 100x bin/get of GMT.1000HTMLMacros
+        read-notes-stdout: true

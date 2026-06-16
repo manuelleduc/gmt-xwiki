@@ -1,0 +1,25 @@
+---
+name: XWiki __GMT_VAR_VERSION__ - Reload Home - PostgreSQL - Firefox
+author: Manuel Leduc <manuel.leduc@gmail.com>
+description: >
+  500x bin/get/Main/WebHome (urllib, no skin) then
+  30x bin/view/Main/WebHome (Firefox, full Flamingo skin).
+
+compose-file: !include compose.yml
+
+flow:
+  - name: Wait for XWiki
+    container: gcb-playwright
+    hidden: true
+    commands:
+      - type: console
+        shell: bash
+        command: bash /tmp/repo/playwright-files/wait_for_xwiki.sh
+
+  - name: Reload Main.WebHome
+    container: gcb-playwright
+    commands:
+      - type: console
+        command: python3 /tmp/repo/playwright-files/reload_home.py firefox
+        note: 500x no-UI + 30x UI
+        read-notes-stdout: true

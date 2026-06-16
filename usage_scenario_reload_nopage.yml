@@ -1,0 +1,26 @@
+---
+name: XWiki __GMT_VAR_VERSION__ - Reload Non-Existing Page - PostgreSQL - Firefox
+author: Manuel Leduc <manuel.leduc@gmail.com>
+description: >
+  200x bin/get/NoSpace/NoPage (urllib, no skin, 404 path) then
+  30x bin/view/NoSpace/NoPage (Firefox, full Flamingo skin).
+  Measures XWiki's cost for the page-not-found code path.
+
+compose-file: !include compose.yml
+
+flow:
+  - name: Wait for XWiki
+    container: gcb-playwright
+    hidden: true
+    commands:
+      - type: console
+        shell: bash
+        command: bash /tmp/repo/playwright-files/wait_for_xwiki.sh
+
+  - name: Reload non-existing page
+    container: gcb-playwright
+    commands:
+      - type: console
+        command: python3 /tmp/repo/playwright-files/reload_nopage.py firefox
+        note: 200x no-UI + 30x UI
+        read-notes-stdout: true

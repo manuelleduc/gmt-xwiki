@@ -1,0 +1,25 @@
+---
+name: XWiki __GMT_VAR_VERSION__ - Render Home - PostgreSQL
+author: Manuel Leduc <manuel.leduc@gmail.com>
+description: >
+  1000x bin/get/Main/WebHome (no browser) — baseline for home-page
+  template rendering cost from a warm server cache.
+
+compose-file: !include compose.yml
+
+flow:
+  - name: Wait for XWiki
+    container: gcb-playwright
+    hidden: true
+    commands:
+      - type: console
+        shell: bash
+        command: bash /tmp/repo/playwright-files/wait_for_xwiki.sh
+
+  - name: Render Main.WebHome without UI
+    container: gcb-playwright
+    commands:
+      - type: console
+        command: python3 /tmp/repo/playwright-files/render_home.py
+        note: 1000x bin/get/Main/WebHome
+        read-notes-stdout: true

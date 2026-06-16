@@ -1,0 +1,25 @@
+---
+name: XWiki __GMT_VAR_VERSION__ - Render 1000 ID Macros - PostgreSQL
+author: Manuel Leduc <manuel.leduc@gmail.com>
+description: >
+  1000x bin/get of a page with 1000 {{id}} macros (no browser) —
+  measures per-macro overhead of XWiki's lightest macro.
+
+compose-file: !include compose.yml
+
+flow:
+  - name: Wait for XWiki
+    container: gcb-playwright
+    hidden: true
+    commands:
+      - type: console
+        shell: bash
+        command: bash /tmp/repo/playwright-files/wait_for_xwiki.sh
+
+  - name: Render 1000 {{id}} macros without UI
+    container: gcb-playwright
+    commands:
+      - type: console
+        command: python3 /tmp/repo/playwright-files/render_id.py
+        note: 1000x bin/get of GMT.MacroBenchmark
+        read-notes-stdout: true

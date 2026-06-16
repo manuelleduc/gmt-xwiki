@@ -1,0 +1,26 @@
+---
+name: XWiki __GMT_VAR_VERSION__ - Search All Results - PostgreSQL
+author: Manuel Leduc <manuel.leduc@gmail.com>
+description: >
+  100x bin/view/Main/Search?text=* (urllib, authenticated) — measures the
+  combined cost of a Solr wildcard query and search-results page rendering.
+  Matches XWiki's own benchmark methodology (authenticated wget, all docs).
+
+compose-file: !include compose.yml
+
+flow:
+  - name: Wait for XWiki
+    container: gcb-playwright
+    hidden: true
+    commands:
+      - type: console
+        shell: bash
+        command: bash /tmp/repo/playwright-files/wait_for_xwiki.sh
+
+  - name: Search all results
+    container: gcb-playwright
+    commands:
+      - type: console
+        command: python3 /tmp/repo/playwright-files/search_perf.py
+        note: 100x bin/view/Main/Search?text=*
+        read-notes-stdout: true

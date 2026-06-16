@@ -1,7 +1,7 @@
 ---
 name: XWiki __GMT_VAR_VERSION__ - Idle - PostgreSQL
 author: Manuel Leduc <manuel.leduc@gmail.com>
-description: Boots a pre-initialized XWiki and measures 60 seconds of idle operation (baseline).
+description: Boots a pre-initialized XWiki and measures 300 seconds of idle operation (baseline).
 
 compose-file: !include compose.yml
 
@@ -18,5 +18,5 @@ flow:
     container: gcb-playwright
     commands:
       - type: console
-        command: sleep 60
+        command: sleep 300
         note: XWiki idling, no interaction
