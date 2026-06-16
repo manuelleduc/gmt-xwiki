@@ -14,7 +14,11 @@ Usage:
                        --uri /home/mleduc/gmt-xwiki   # local GMT instance
 
 PDF rendering uses Playwright/Chromium: the local venv if importable,
-otherwise the greencoding/gcb_playwright container (needs docker).
+otherwise the greencoding/gcb_playwright container (needs docker). If pypdf
+is installed, the PDF also gets a bookmarks/outline pane (one entry per
+scenario). Per-run phase stats are cached under .report_cache/ (--no-cache
+to disable, --cache-dir to relocate) since a completed run's stats never
+change.
 """
 import argparse
 import json
@@ -337,7 +341,34 @@ print(f'PDF written to {pdf}')
 """
 
 
-def render_pdf(out_dir, html_content):
+def add_pdf_outline(pdf_path, scenarios):
+    """Add a bookmarks pane to the PDF: one entry per scenario section plus
+    the runs table. Page numbers aren't known ahead of Chromium's print, so
+    each heading's page is found after the fact by searching extracted text."""
+    try:
+        import pypdf
+    except ImportError:
+        print('  pypdf not installed, skipping PDF outline/bookmarks (pip/apt install pypdf)')
+        return
+    reader = pypdf.PdfReader(str(pdf_path))
+    headings = [(s, f'Scenario: {s} — evolution across versions') for s in scenarios]
+    headings.append(('Runs included', 'Runs included'))
+    writer = pypdf.PdfWriter()
+    writer.append(reader)
+    cursor = 0
+    for title, needle in headings:
+        for i in range(cursor, len(reader.pages)):
+            if needle in reader.pages[i].extract_text():
+                writer.add_outline_item(title, i)
+                cursor = i
+                break
+    tmp = pdf_path.with_suffix('.tmp.pdf')
+    with open(tmp, 'wb') as f:
+        writer.write(f)
+    tmp.replace(pdf_path)
+
+
+def render_pdf(out_dir, html_content, scenarios):
     """Render html_content (the all-scenarios single-page report) to report.pdf.
     Kept as one page for print since no PDF-merge library is installed."""
     html = out_dir / '_print.html'
@@ -346,18 +377,21 @@ def render_pdf(out_dir, html_content):
     try:
         try:
             import playwright  # noqa: F401
+            has_local_playwright = True
+        except ImportError:
+            has_local_playwright = False
+        if has_local_playwright:
             subprocess.run([sys.executable, '-c', PDF_SNIPPET, str(html.resolve()), str(pdf.resolve())],
                            check=True)
-            return
-        except ImportError:
-            pass
-        print('  local playwright not available, rendering PDF in gcb_playwright container')
-        subprocess.run(['docker', 'run', '--rm', '-v', f"{out_dir.resolve()}:/report",
-                        'greencoding/gcb_playwright:v21',
-                        'python3', '-c', PDF_SNIPPET, f'/report/{html.name}', '/report/report.pdf'],
-                       check=True)
+        else:
+            print('  local playwright not available, rendering PDF in gcb_playwright container')
+            subprocess.run(['docker', 'run', '--rm', '-v', f"{out_dir.resolve()}:/report",
+                            'greencoding/gcb_playwright:v21',
+                            'python3', '-c', PDF_SNIPPET, f'/report/{html.name}', '/report/report.pdf'],
+                           check=True)
     finally:
         html.unlink(missing_ok=True)
+    add_pdf_outline(pdf, scenarios)
 
 
 def default_uri():
@@ -414,7 +448,7 @@ def main():
     print(f"Web report written to {out_dir} (index.html + {len(all_scenarios)} scenario pages)")
     if args.pdf:
         full_html = build_html(data, args.api_url, uri)
-        render_pdf(out_dir, full_html)
+        render_pdf(out_dir, full_html, all_scenarios)
 
 
 if __name__ == '__main__':

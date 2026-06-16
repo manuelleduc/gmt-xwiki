@@ -60,8 +60,15 @@ Fetches the latest successful run per version/scenario from the hosted API
 `index.html` landing page (nav + full runs table) plus one `<scenario>.html`
 per scenario; `--pdf` still renders a single combined `report.pdf` (all
 scenarios on one page, via a temp HTML file) since no PDF-merge library is
-installed. PDF rendering uses local Playwright if installed, else the
-`gcb_playwright` container.
+installed — instead, after Chromium prints it, `pypdf` (`apt install
+python3-pypdf` or `pip install pypdf`) post-processes the file to add a
+bookmarks/outline pane, one entry per scenario plus the runs table, found by
+searching each rendered page's text for that scenario's heading (page numbers
+aren't known until after Chromium paginates). Outline generation degrades to a
+skip + warning if `pypdf` isn't installed. PDF rendering uses local Playwright
+if installed, else the `gcb_playwright` container. Per-run phase stats are
+cached on disk under `.report_cache/` (gitignored) since a completed run's
+stats never change — `--no-cache` disables it, `--cache-dir` relocates it.
 
 ### Test a scenario script without GMT (fast iteration)
 ```bash
