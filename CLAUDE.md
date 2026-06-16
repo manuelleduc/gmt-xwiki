@@ -52,12 +52,16 @@ to GHCR (`provision_version.sh <version> --push`) and set to public visibility o
 
 ### Generate a cross-version report (web + PDF)
 ```bash
-./generate_report.py --pdf     # → report/index.html + report/report.pdf (gitignored)
+./generate_report.py --pdf     # → report/index.html + report/<scenario>.html + report/report.pdf (gitignored)
 ```
 Fetches the latest successful run per version/scenario from the hosted API
 (`--api-url`/`--uri` override for a local GMT instance) and charts the
-`[RUNTIME]` metrics across versions. PDF rendering uses local Playwright if
-installed, else the `gcb_playwright` container.
+`[RUNTIME]` metrics across versions. The web report is split into a chart-less
+`index.html` landing page (nav + full runs table) plus one `<scenario>.html`
+per scenario; `--pdf` still renders a single combined `report.pdf` (all
+scenarios on one page, via a temp HTML file) since no PDF-merge library is
+installed. PDF rendering uses local Playwright if installed, else the
+`gcb_playwright` container.
 
 ### Test a scenario script without GMT (fast iteration)
 ```bash
@@ -74,6 +78,7 @@ installed, else the `gcb_playwright` container.
 - **XWiki starts slowly** (~1 min Tomcat + XWiki init; more with seeded DB). The hosted cluster caps GMT's dependency healthcheck wait at 60s (a per-account capability, not settable via the request form), so `gcb-playwright` (defined in `compose.yml` like the rest of the stack) uses a plain `depends_on: [xwiki]` (waits for "running" only) and every scenario starts with a `hidden: true` "Wait for XWiki" flow step running `playwright-files/wait_for_xwiki.sh` (polls the URL for up to 600s). Only `db` keeps `condition: service_healthy` (the dump restore finishes well under 60s). `run_measurements.sh` still passes `--measurement-wait-time-dependencies 600` locally as a safety margin for the db healthcheck.
 - GMT's runner must run from its venv: `source ~/green-metrics-tool/venv/bin/activate`. GMT lives at `/home/mleduc/green-metrics-tool`.
 - `compose.yml` must only use compose keys GMT supports (see `lib/schema_checker.py` in GMT): no `dns`, no named volumes; bind-mount paths must stay inside this repo. Provisioning-only settings go in `provision/compose-blank.yml`.
+- Flow step `name:` fields in `usage_scenario_*.yml` are schema-validated by GMT against `^[\.\s0-9a-zA-Z_\(\)-]+$` — no curly braces or other punctuation. A violation fails at submission time *before* a run record is created (the cluster reports `Run-ID: None`), so it never shows up via the `/v2/runs` API and won't auto-retry; you have to notice the emailed error and resubmit. `debug_stack.sh run` bypasses this check entirely (it runs the playwright script directly, not through GMT), so a scenario can pass local testing and still fail this validation on the cluster.
 - The Distribution Wizard's extension UI re-renders constantly and keeps *enabled but hidden* buttons in the DOM (e.g. `COMPLETE_STEP` before the flavor is installed). `provision.py` therefore only JS-clicks buttons that are visible AND enabled — keep it that way.
 - Docker's embedded DNS was flaky under the flavor install's concurrent downloads; `provision/compose-blank.yml` pins public DNS servers for the xwiki service.
 - When making HTTP requests to xwiki.org and its subdomains, use the `oehZnwZkXQKnFBNktSv` user agent to bypass Cloudflare.
