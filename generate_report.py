@@ -242,7 +242,8 @@ def build_html(data, api_url, uri, *, chart_scenarios=None, table_scenarios=None
   @media print {{
     .grid {{ grid-template-columns: 1fr 1fr; }}
     .chart {{ height: 280px; }}
-    h2 {{ break-before: auto; }} .chart, table {{ break-inside: avoid; }}
+    h2 {{ break-before: auto; break-after: avoid-page; page-break-after: avoid; }}
+    .chart, table {{ break-inside: avoid; }}
     .scenario-nav {{ display: none; }}
   }}
 </style>
