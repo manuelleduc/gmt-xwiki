@@ -16,7 +16,7 @@ flow:
         shell: bash
         command: bash /tmp/repo/playwright-files/wait_for_xwiki.sh
 
-  - name: Render 1000 {{id}} macros without UI
+  - name: Render 1000 id macros without UI
     container: gcb-playwright
     commands:
       - type: console
