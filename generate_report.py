@@ -243,6 +243,7 @@ def build_html(data, api_url, uri, *, chart_scenarios=None, table_scenarios=None
     .grid {{ grid-template-columns: 1fr 1fr; }}
     .chart {{ height: 280px; }}
     h2 {{ break-before: auto; break-after: avoid-page; page-break-after: avoid; }}
+    h2.scenario-heading {{ break-before: page; page-break-before: always; }}
     .chart, table {{ break-inside: avoid; }}
     .scenario-nav {{ display: none; }}
   }}
@@ -290,6 +291,7 @@ function colorForContainer(name) {{
 }}
 D.scenarios.forEach((s, idx) => {{
   const h = document.createElement('h2');
+  h.className = 'scenario-heading';
   h.textContent = `Scenario: ${{s}} — evolution across versions`;
   sections.appendChild(h);
   const grid = document.createElement('div'); grid.className = 'grid';
