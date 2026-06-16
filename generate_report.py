@@ -275,7 +275,19 @@ over the runtime phase.</p>
 const D = {payload};
 const charts = [];
 const sections = document.getElementById('scenario-sections');
-const palette = ['#5470c6', '#91cc75', '#fac858', '#ee6666'];
+// one distinct color per scenario (wraps if there are more scenarios than colors)
+const palette = ['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de', '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc'];
+// fixed name -> color so the same container always has the same color on
+// every scenario page, not just within one chart; a different hue set than
+// `palette` above so a container's color is never mistaken for a scenario's
+const containerColors = {{'xwiki': '#4c78a8', 'db': '#f58518', 'gcb-playwright': '#54a24b', 'GMT Overhead': '#b0b0b0'}};
+const extraPalette = ['#b279a2', '#9d755d', '#e45756', '#72b7b2'];
+function colorForContainer(name) {{
+  if (!(name in containerColors)) {{
+    containerColors[name] = extraPalette[Object.keys(containerColors).length % extraPalette.length];
+  }}
+  return containerColors[name];
+}}
 D.scenarios.forEach((s, idx) => {{
   const h = document.createElement('h2');
   h.textContent = `Scenario: ${{s}} — evolution across versions`;
@@ -291,14 +303,15 @@ D.scenarios.forEach((s, idx) => {{
       grid: {{ top: 45, left: 55, right: 10, bottom: 25 }},
       xAxis: {{ type: 'category', data: D.versions }},
       yAxis: {{ type: 'value' }},
-      series: [{{ name: s, type: 'bar', data: seriesMap[s], itemStyle: {{ color: palette[idx % palette.length] }} }}],
+      series: [{{ name: s, type: 'bar', data: seriesMap[s], itemStyle: {{ color: palette[idx % palette.length] }},
+        label: {{ show: true, position: 'top', fontSize: 9, color: '#444' }} }}],
       animation: false,
     }});
     charts.push(c);
   }}
   // per-container energy attribution for this scenario
   const el = document.createElement('div'); el.className = 'chart'; grid.appendChild(el);
-  const containers = [...new Set(Object.values(D.attribution[s]).flatMap(o => Object.keys(o)))];
+  const containers = [...new Set(Object.values(D.attribution[s]).flatMap(o => Object.keys(o)))].sort();
   const c = echarts.init(el);
   c.setOption({{
     title: {{ text: 'Energy attribution per container (J)', textStyle: {{ fontSize: 13 }} }},
@@ -306,7 +319,7 @@ D.scenarios.forEach((s, idx) => {{
     grid: {{ top: 60, left: 55, right: 10, bottom: 25 }},
     xAxis: {{ type: 'category', data: D.versions }},
     yAxis: {{ type: 'value' }},
-    series: containers.map(name => ({{ name, type: 'bar', stack: 'e',
+    series: containers.map(name => ({{ name, type: 'bar', stack: 'e', itemStyle: {{ color: colorForContainer(name) }},
       data: D.versions.map(v => (D.attribution[s][v] || {{}})[name] ?? null) }})),
     animation: false,
   }});
