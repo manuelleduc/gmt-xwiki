@@ -149,28 +149,50 @@ def collect(api_url, runs):
     return out
 
 
-def build_html(data, api_url, uri):
+def render_nav(all_scenarios, current=None):
+    crumbs = ['<span class="current">Overview</span>' if current is None
+              else '<a href="index.html">Overview</a>']
+    for s in all_scenarios:
+        crumbs.append(f'<span class="current">{s}</span>' if s == current
+                      else f'<a href="{s}.html">{s}</a>')
+    return '<nav class="scenario-nav">' + ' · '.join(crumbs) + '</nav>'
+
+
+def render_index_links(all_scenarios):
+    items = ''.join(f'<li><a href="{s}.html">{s}</a></li>' for s in all_scenarios)
+    return f'<h2>Scenarios</h2>\n<ul class="scenario-list">{items}</ul>'
+
+
+def build_html(data, api_url, uri, *, chart_scenarios=None, table_scenarios=None,
+               heading=None, extra_html=''):
+    """Render one HTML page. By default includes every scenario's charts and
+    the full runs table; pass chart_scenarios/table_scenarios subsets to
+    build a scenario sub-page or a chart-less index/landing page."""
     versions = sorted({v for v, _ in data}, key=version_key)
-    scenarios = sorted({s for _, s in data})
+    all_scenarios = sorted({s for _, s in data})
+    chart_scenarios = all_scenarios if chart_scenarios is None else chart_scenarios
+    table_scenarios = all_scenarios if table_scenarios is None else table_scenarios
     units = dict(DISPLAY_METRICS)
+    heading = heading or 'XWiki across versions — Green Metrics Tool report'
 
     series_per_metric = {}
     for label, _ in DISPLAY_METRICS:
         series_per_metric[label] = {
             s: [data.get((v, s), {}).get('metrics', {}).get(label) for v in versions]
-            for s in scenarios
+            for s in chart_scenarios
         }
     attribution = {
         s: {v: data.get((v, s), {}).get('attribution', {}) for v in versions}
-        for s in scenarios
+        for s in chart_scenarios
     }
     table = [
         {'version': v, 'scenario': s, 'id': d['id'], 'machine': d['machine'],
          'commit': (d['commit'] or '')[:8], 'created_at': d['created_at'][:16],
          **{label: val for label, val in d['metrics'].items()}}
         for (v, s), d in sorted(data.items(), key=lambda kv: (version_key(kv[0][0]), kv[0][1]))
+        if s in table_scenarios
     ]
-    payload = json.dumps({'versions': versions, 'scenarios': scenarios,
+    payload = json.dumps({'versions': versions, 'scenarios': chart_scenarios,
                           'units': units, 'metrics': series_per_metric,
                           'attribution': attribution, 'table': table,
                           'dashboard': api_url.replace('api.', 'metrics.')})
@@ -180,7 +202,7 @@ def build_html(data, api_url, uri):
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>XWiki across versions — GMT report</title>
+<title>{heading}</title>
 <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"
         integrity="sha384-Mx5lkUEQPM1pOJCwFtUICyX45KNojXbkWdYhkKUKsbv391mavbfoAmONbzkgYPzR"
         crossorigin="anonymous"></script>
@@ -195,17 +217,23 @@ def build_html(data, api_url, uri):
   th {{ background: #f5f5f5; }} td:nth-child(-n+2), th:nth-child(-n+2) {{ text-align: left; }}
   a {{ color: #2a6db0; }}
   .footnote {{ font-size: .8rem; color: #666; margin-top: 1.5rem; }}
+  .scenario-nav {{ font-size: .9rem; margin: .5rem 0 1.2rem; }}
+  .scenario-nav .current {{ font-weight: 600; color: #222; }}
+  .scenario-list {{ columns: 2; }}
   @media print {{
     .grid {{ grid-template-columns: 1fr 1fr; }}
     .chart {{ height: 280px; }}
     h2 {{ break-before: auto; }} .chart, table {{ break-inside: avoid; }}
+    .scenario-nav {{ display: none; }}
   }}
 </style>
 </head>
 <body>
-<h1>XWiki across versions — Green Metrics Tool report</h1>
+<h1>{heading}</h1>
 <p class="meta">Repository: {uri} · Source: {api_url} · Generated: {generated}<br>
 Latest successful run per version/scenario, metrics from the measured <code>[RUNTIME]</code> phase.</p>
+{render_nav(all_scenarios, current=chart_scenarios[0] if len(chart_scenarios) == 1 else None)}
+{extra_html}
 
 <div id="scenario-sections"></div>
 
@@ -294,20 +322,27 @@ print(f'PDF written to {pdf}')
 """
 
 
-def render_pdf(out_dir):
-    html, pdf = out_dir / 'index.html', out_dir / 'report.pdf'
+def render_pdf(out_dir, html_content):
+    """Render html_content (the all-scenarios single-page report) to report.pdf.
+    Kept as one page for print since no PDF-merge library is installed."""
+    html = out_dir / '_print.html'
+    pdf = out_dir / 'report.pdf'
+    html.write_text(html_content)
     try:
-        import playwright  # noqa: F401
-        subprocess.run([sys.executable, '-c', PDF_SNIPPET, str(html.resolve()), str(pdf.resolve())],
+        try:
+            import playwright  # noqa: F401
+            subprocess.run([sys.executable, '-c', PDF_SNIPPET, str(html.resolve()), str(pdf.resolve())],
+                           check=True)
+            return
+        except ImportError:
+            pass
+        print('  local playwright not available, rendering PDF in gcb_playwright container')
+        subprocess.run(['docker', 'run', '--rm', '-v', f"{out_dir.resolve()}:/report",
+                        'greencoding/gcb_playwright:v21',
+                        'python3', '-c', PDF_SNIPPET, f'/report/{html.name}', '/report/report.pdf'],
                        check=True)
-        return
-    except ImportError:
-        pass
-    print('  local playwright not available, rendering PDF in gcb_playwright container')
-    subprocess.run(['docker', 'run', '--rm', '-v', f"{out_dir.resolve()}:/report",
-                    'greencoding/gcb_playwright:v21',
-                    'python3', '-c', PDF_SNIPPET, '/report/index.html', '/report/report.pdf'],
-                   check=True)
+    finally:
+        html.unlink(missing_ok=True)
 
 
 def default_uri():
@@ -344,10 +379,22 @@ def main():
     data = collect(args.api_url, runs)
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / 'index.html').write_text(build_html(data, args.api_url, uri))
-    print(f"Web report written to {out_dir / 'index.html'}")
+    all_scenarios = sorted({s for _, s in data})
+
+    index_heading = 'XWiki across versions — Green Metrics Tool report'
+    index_html = build_html(data, args.api_url, uri, chart_scenarios=[],
+                            heading=index_heading, extra_html=render_index_links(all_scenarios))
+    (out_dir / 'index.html').write_text(index_html)
+
+    for s in all_scenarios:
+        page_html = build_html(data, args.api_url, uri, chart_scenarios=[s], table_scenarios=[s],
+                               heading=f'XWiki — {s} — Green Metrics Tool report')
+        (out_dir / f'{s}.html').write_text(page_html)
+
+    print(f"Web report written to {out_dir} (index.html + {len(all_scenarios)} scenario pages)")
     if args.pdf:
-        render_pdf(out_dir)
+        full_html = build_html(data, args.api_url, uri)
+        render_pdf(out_dir, full_html)
 
 
 if __name__ == '__main__':
